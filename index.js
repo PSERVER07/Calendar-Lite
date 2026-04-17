@@ -304,14 +304,17 @@ app.get('/proxy-image-backdrop/:type/:id/:tag/:lang.png', async (req, res) => {
         const { type, id, tag, lang } = req.params;
         const tmdbType = type === 'series' ? 'tv' : 'movie';
 
-        const response = await fetch(`https://api.themoviedb.org/3/${tmdbType}/${id}/images?api_key=${TMDB_API_KEY}`);
+        const response = await fetch(`https://api.themoviedb.org/3/${tmdbType}/${id}?api_key=${TMDB_API_KEY}&append_to_response=images`);
         const details = await response.json();
+        const images = details.images || details;
+        const originalLang = details.original_language;
 
         const backdropLangToUse = lang === 'null' ? null : lang;
 
-        const backdrop = details.backdrops?.find(b => b.iso_639_1 === backdropLangToUse)
-            || details.backdrops?.find(b => b.iso_639_1 === null)
-            || details.backdrops?.[0];
+        const backdrop = images.backdrops?.find(b => b.iso_639_1 === backdropLangToUse)
+            || (originalLang && images.backdrops?.find(b => b.iso_639_1 === originalLang))
+            || images.backdrops?.find(b => b.iso_639_1 === null)
+            || images.backdrops?.[0];
 
         if (!backdrop || !backdrop.file_path) {
             return res.redirect(301, 'https://via.placeholder.com/1280x720.png?text=No+Background+Available');
@@ -490,15 +493,18 @@ app.get('/proxy-image-poster/:type/:id/:rank/:lang.png', async (req, res) => {
         const { type, id, rank, lang } = req.params;
         const tmdbType = type === 'series' ? 'tv' : 'movie';
 
-        const response = await fetch(`https://api.themoviedb.org/3/${tmdbType}/${id}/images?api_key=${TMDB_API_KEY}`);
+        const response = await fetch(`https://api.themoviedb.org/3/${tmdbType}/${id}?api_key=${TMDB_API_KEY}&append_to_response=images`);
         const details = await response.json();
+        const images = details.images || details;
+        const originalLang = details.original_language;
 
         const posterLangToUse = lang === 'null' ? null : lang;
 
-        const poster = details.posters?.find(p => p.iso_639_1 === posterLangToUse)
-            || details.posters?.find(p => p.iso_639_1 === null)
-            || details.posters?.find(p => p.iso_639_1 === 'en')
-            || details.posters?.[0];
+        const poster = images.posters?.find(p => p.iso_639_1 === posterLangToUse)
+            || (originalLang && images.posters?.find(p => p.iso_639_1 === originalLang))
+            || images.posters?.find(p => p.iso_639_1 === null)
+            || images.posters?.find(p => p.iso_639_1 === 'en')
+            || images.posters?.[0];
 
         if (!poster || !poster.file_path) {
             return res.redirect(301, 'https://via.placeholder.com/500x750.png?text=Poster+Unavailable');
@@ -623,6 +629,11 @@ const configUI = `<!DOCTYPE html>
         .item-card.portrait img { width: 150px; aspect-ratio: 2/3; }
         .item-title { font-size: 13px; color: #b3b3b3; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 100%; margin: 0; }
         .loading { color: #aaa; font-style: italic; font-size: 14px; padding: 20px 0; text-align: center; width: 100%; align-self: center; }
+        .tooltip { position: relative; cursor: help; display: flex; align-items: center; width: max-content; }
+        .tooltip .tooltiptext { visibility: hidden; width: 220px; background-color: #333; color: #fff; text-align: center; border-radius: 6px; padding: 8px; position: absolute; z-index: 10; bottom: 100%; left: 0; margin-bottom: 12px; opacity: 0; transition: opacity 0.2s; font-size: 12px; font-weight: 400; box-shadow: 0 4px 10px rgba(0,0,0,0.5); pointer-events: none; line-height: 1.4; }
+        .tooltip .tooltiptext::after { content: ""; position: absolute; top: 100%; left: 120px; margin-left: -5px; border-width: 5px; border-style: solid; border-color: #333 transparent transparent transparent; }
+        .tooltip:hover .tooltiptext { visibility: visible; opacity: 1; }
+        .info-icon { display: inline-flex; justify-content: center; align-items: center; background: #444; color: #ddd; border-radius: 50%; width: 16px; height: 16px; font-size: 12px; font-weight: bold; margin-left: 6px; }
     </style>
 </head>
 <body>
@@ -647,7 +658,11 @@ const configUI = `<!DOCTYPE html>
                 </select>
             </div>
             <div class="form-group">
-                <label for="posterLang">Poster Language</label>
+                <label for="posterLang" class="tooltip">
+                    Poster Language
+                    <span class="info-icon">?</span>
+                    <span class="tooltiptext">If unavailable, falls back to the content's original language.</span>
+                </label>
                 <select id="posterLang" onchange="updateLink()">
                     <option value="en" selected>English</option>
                     <option value="ja">Japanese</option>
