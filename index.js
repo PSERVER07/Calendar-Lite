@@ -266,7 +266,7 @@ builder.defineCatalogHandler(async (args) => {
         page++;
     }
 
-    const metas = finalItems.map((item, index) => {
+    const metas = finalItems.slice(0, 10).map((item, index) => {
         const rank = index + 1;
 
         let finalPosterUrl = item.poster_path ? `https://image.tmdb.org/t/p/w500${item.poster_path}` : null;
@@ -586,7 +586,195 @@ app.get('/proxy-image-poster/:type/:id/:rank/:lang.png', async (req, res) => {
     }
 });
 
-const configUI = `<!DOCTYPE html><html><head><title>TMDB Trending Today</title><meta name="viewport" content="width=device-width, initial-scale=1"><style>body{font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;background-color:#121212;color:#fff;display:flex;justify-content:center;align-items:center;height:100vh;margin:0}.container{background-color:#1e1e1e;padding:30px;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.5);width:100%;max-width:400px;max-height:95vh;overflow-y:auto}h2{margin-top:0;text-align:center;color:#e0e0e0}.form-group{margin-bottom:20px}label{display:block;margin-bottom:8px;font-weight:600;font-size:14px;color:#b3b3b3}select{width:100%;padding:12px;border-radius:6px;border:1px solid #333;background:#2a2a2a;color:#fff;font-size:14px;outline:none;box-sizing:border-box}select:focus{border-color:#8b0000}.checkbox-group{display:flex;align-items:center;background:#2a2a2a;padding:12px;border-radius:6px;border:1px solid #333;cursor:pointer;margin-bottom:10px}.checkbox-group input{margin-right:12px;width:18px;height:18px;cursor:pointer;accent-color:#8b0000}.checkbox-group span{margin-bottom:0;cursor:pointer;color:#fff;font-size:15px}.link-container{display:flex;gap:10px;margin-top:5px}.link-container input{flex-grow:1;padding:12px;border-radius:6px;border:1px solid #333;background:#2a2a2a;color:#aaa;font-size:13px;outline:none}.link-container button{width:auto;margin-top:0;padding:0 20px;background-color:#8b0000;color:#fff;font-size:14px;font-weight:700;border:none;border-radius:6px;cursor:pointer;transition:background .2s}.link-container button:hover{background-color:#660000}.main-btn{width:100%;padding:14px;border:none;border-radius:6px;background-color:#8b0000;color:#fff;font-size:16px;font-weight:700;cursor:pointer;transition:background .2s;margin-top:10px}.main-btn:hover{background-color:#660000}</style></head><body><div class="container"><h2>TMDB Trending Today Settings</h2><label class="form-group checkbox-group" for="tags"><input type="checkbox" id="tags" checked onchange="updateLink()"><span>Enable Landscape Poster Tags (eg. Coming Soon, New Season etc.)</span></label><label class="form-group checkbox-group" for="ranked"><input type="checkbox" id="ranked" checked onchange="updateLink()"><span>Enable Portrait Ranked Posters</span></label><label class="form-group checkbox-group" for="digitalOnly"><input type="checkbox" id="digitalOnly" checked onchange="updateLink()"><span>Filter Movies Not Released Digitally</span></label><div class="form-group"><label for="listLang">Language Filter</label><select id="listLang" onchange="updateLink()"><option value="all">All</option><option value="en" selected>English</option><option value="non-en">Global (non English)</option><option value="ja">Japanese</option><option value="ko">Korean</option><option value="es">Spanish</option><option value="fr">French</option><option value="de">German</option><option value="hi">Hindi</option></select></div><div class="form-group"><label for="posterLang">Poster Language</label><select id="posterLang" onchange="updateLink()"><option value="en" selected>English</option><option value="ja">Japanese</option><option value="ko">Korean</option><option value="es">Spanish</option><option value="fr">French</option><option value="de">German</option><option value="hi">Hindi</option><option value="null">Textless</option></select></div><div class="form-group"><label>Manifest URL</label><div class="link-container"><input type="text" id="manifestUrl" readonly><button id="copyBtn" onclick="copyLink()">Copy</button></div></div><button id="installBtn" class="main-btn">Install</button></div><script>function updateLink(){const t=document.getElementById('tags').checked,r=document.getElementById('ranked').checked,d=document.getElementById('digitalOnly').checked,l=document.getElementById('listLang').value,p=document.getElementById('posterLang').value;const c=\`tags=\${t}|ranked=\${r}|digitalOnly=\${d}|listLang=\${l}|posterLang=\${p}\`;const h=window.location.host,pr=window.location.protocol;document.getElementById('manifestUrl').value=\`\${pr}//\${h}/\${c}/manifest.json\`;document.getElementById('installBtn').onclick=()=>{window.location.href=\`stremio://\${h}/\${c}/manifest.json\`}}function copyLink(){const c=document.getElementById("manifestUrl");c.select();c.setSelectionRange(0,99999);navigator.clipboard.writeText(c.value).then(()=>{const b=document.getElementById("copyBtn");const o=b.innerText;b.innerText="Copied!";b.style.backgroundColor="#660000";setTimeout(()=>{b.innerText=o;b.style.backgroundColor="#8b0000"},2000)})}updateLink();</script></body></html>`;
+const configUI = `<!DOCTYPE html>
+<html>
+<head>
+    <title>TMDB Trending Today Settings</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #121212; color: #fff; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; padding: 40px 20px; box-sizing: border-box; }
+        .wrapper { display: flex; flex-wrap: wrap; gap: 30px; justify-content: center; align-items: stretch; width: 100%; max-width: 1400px; }
+        .container { background-color: #1e1e1e; padding: 30px; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,.5); width: 100%; max-width: 400px; box-sizing: border-box; display: flex; flex-direction: column; max-height: 90vh; overflow-y: auto; }
+        .preview-container { background-color: #1e1e1e; padding: 30px; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,.5); width: 100%; max-width: 800px; box-sizing: border-box; display: flex; flex-direction: column; max-height: 90vh; overflow-y: auto; }
+        h2 { margin-top: 0; text-align: center; color: #e0e0e0; margin-bottom: 25px; }
+        .form-group { margin-bottom: 20px; }
+        label { display: block; margin-bottom: 8px; font-weight: 600; font-size: 14px; color: #b3b3b3; }
+        select { width: 100%; padding: 12px; border-radius: 6px; border: 1px solid #333; background: #2a2a2a; color: #fff; font-size: 14px; outline: none; box-sizing: border-box; }
+        select:focus { border-color: #8b0000; }
+        .checkbox-group { display: flex; align-items: center; background: #2a2a2a; padding: 12px; border-radius: 6px; border: 1px solid #333; cursor: pointer; margin-bottom: 10px; }
+        .checkbox-group input { margin-right: 12px; width: 18px; height: 18px; cursor: pointer; accent-color: #8b0000; }
+        .checkbox-group span { margin-bottom: 0; cursor: pointer; color: #fff; font-size: 15px; }
+        .link-container { display: flex; gap: 10px; margin-top: 5px; }
+        .link-container input { flex-grow: 1; padding: 12px; border-radius: 6px; border: 1px solid #333; background: #2a2a2a; color: #aaa; font-size: 13px; outline: none; }
+        .link-container button { width: auto; margin-top: 0; padding: 0 20px; background-color: #8b0000; color: #fff; font-size: 14px; font-weight: 700; border: none; border-radius: 6px; cursor: pointer; transition: background .2s; }
+        .link-container button:hover { background-color: #660000; }
+        .main-btn { width: 100%; padding: 14px; border: none; border-radius: 6px; background-color: #8b0000; color: #fff; font-size: 16px; font-weight: 700; cursor: pointer; transition: background .2s; margin-top: auto; }
+        .main-btn:hover { background-color: #660000; }
+        .preview-section { width: 100%; }
+        .row-title { color: #e0e0e0; margin: 0 0 15px 0; font-size: 16px; border-bottom: 1px solid #333; padding-bottom: 8px; }
+        .horizontal-scroll { display: flex; overflow-x: auto; gap: 15px; padding-bottom: 15px; align-items: flex-start; }
+        .horizontal-scroll::-webkit-scrollbar { height: 8px; }
+        .horizontal-scroll::-webkit-scrollbar-track { background: #2a2a2a; border-radius: 4px; }
+        .horizontal-scroll::-webkit-scrollbar-thumb { background: #555; border-radius: 4px; }
+        .horizontal-scroll::-webkit-scrollbar-thumb:hover { background: #8b0000; }
+        .item-card { display: flex; flex-direction: column; gap: 10px; }
+        .item-card.landscape { width: 280px; }
+        .item-card.portrait { width: 150px; }
+        .item-card img { object-fit: cover; border-radius: 6px; background-color: #2a2a2a; }
+        .item-card.landscape img { width: 280px; aspect-ratio: 16/9; }
+        .item-card.portrait img { width: 150px; aspect-ratio: 2/3; }
+        .item-title { font-size: 13px; color: #b3b3b3; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 100%; margin: 0; }
+        .loading { color: #aaa; font-style: italic; font-size: 14px; padding: 20px 0; text-align: center; width: 100%; align-self: center; }
+    </style>
+</head>
+<body>
+    <div class="wrapper">
+        <div class="container">
+            <h2>TMDB Trending Today Settings</h2>
+            <label class="form-group checkbox-group" for="tags"><input type="checkbox" id="tags" checked onchange="updateLink()"><span>Enable Landscape Poster Tags</span></label>
+            <label class="form-group checkbox-group" for="ranked"><input type="checkbox" id="ranked" checked onchange="updateLink()"><span>Enable Portrait Ranked Posters</span></label>
+            <label class="form-group checkbox-group" for="digitalOnly"><input type="checkbox" id="digitalOnly" checked onchange="updateLink()"><span>Filter Movies Not Released Digitally</span></label>
+            <div class="form-group">
+                <label for="listLang">Language Filter</label>
+                <select id="listLang" onchange="updateLink()">
+                    <option value="all">All</option>
+                    <option value="en" selected>English</option>
+                    <option value="non-en">Global (non English)</option>
+                    <option value="ja">Japanese</option>
+                    <option value="ko">Korean</option>
+                    <option value="es">Spanish</option>
+                    <option value="fr">French</option>
+                    <option value="de">German</option>
+                    <option value="hi">Hindi</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="posterLang">Poster Language</label>
+                <select id="posterLang" onchange="updateLink()">
+                    <option value="en" selected>English</option>
+                    <option value="ja">Japanese</option>
+                    <option value="ko">Korean</option>
+                    <option value="es">Spanish</option>
+                    <option value="fr">French</option>
+                    <option value="de">German</option>
+                    <option value="hi">Hindi</option>
+                    <option value="null">Textless</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Manifest URL</label>
+                <div class="link-container">
+                    <input type="text" id="manifestUrl" readonly>
+                    <button id="copyBtn" onclick="copyLink()">Copy</button>
+                </div>
+            </div>
+            <button id="installBtn" class="main-btn">Install</button>
+        </div>
+        
+        <div class="preview-container">
+            <div style="display: flex; justify-content: space-between; align-items: center; width: 100%; margin-bottom: 25px;">
+                <h2 style="margin: 0;">Catalog Preview</h2>
+                <select id="previewMode" onchange="renderCurrentData()" style="width: auto; padding: 8px; margin-bottom: 0;">
+                    <option value="landscape" selected>Landscape</option>
+                    <option value="portrait">Portrait</option>
+                </select>
+            </div>
+            <div class="preview-section">
+                <h3 class="row-title">Trending Shows Today</h3>
+                <div id="shows-preview" class="horizontal-scroll"><div class="loading">Loading shows...</div></div>
+            </div>
+            <div class="preview-section" style="margin-top: 20px;">
+                <h3 class="row-title">Trending Movies Today</h3>
+                <div id="movies-preview" class="horizontal-scroll"><div class="loading">Loading movies...</div></div>
+            </div>
+        </div>
+    </div>
+    <script>
+        let previewTimeout;
+        let currentShows = [];
+        let currentMovies = [];
+
+        function updateLink() {
+            const t = document.getElementById('tags').checked,
+                  r = document.getElementById('ranked').checked,
+                  d = document.getElementById('digitalOnly').checked,
+                  l = document.getElementById('listLang').value,
+                  p = document.getElementById('posterLang').value;
+                  
+            const c = \`tags=\${t}|ranked=\${r}|digitalOnly=\${d}|listLang=\${l}|posterLang=\${p}\`;
+            const h = window.location.host, pr = window.location.protocol;
+            
+            document.getElementById('manifestUrl').value = \`\${pr}//\${h}/\${c}/manifest.json\`;
+            document.getElementById('installBtn').onclick = () => { window.location.href = \`stremio://\${h}/\${c}/manifest.json\` };
+            
+            clearTimeout(previewTimeout);
+            previewTimeout = setTimeout(() => updatePreviews(c, pr, h), 500);
+        }
+        
+        async function updatePreviews(config, pr, h) {
+            const showsContainer = document.getElementById('shows-preview');
+            const moviesContainer = document.getElementById('movies-preview');
+            
+            showsContainer.innerHTML = '<div class="loading">Loading shows...</div>';
+            moviesContainer.innerHTML = '<div class="loading">Loading movies...</div>';
+            
+            try {
+                const [showsRes, moviesRes] = await Promise.all([
+                    fetch(\`\${pr}//\${h}/\${config}/catalog/series/top_shows_today.json\`),
+                    fetch(\`\${pr}//\${h}/\${config}/catalog/movie/top_movies_today.json\`)
+                ]);
+                
+                const showsData = await showsRes.json();
+                const moviesData = await moviesRes.json();
+                
+                currentShows = showsData.metas || [];
+                currentMovies = moviesData.metas || [];
+                
+                renderCurrentData();
+                
+            } catch (err) {
+                showsContainer.innerHTML = '<div class="loading">Error loading preview</div>';
+                moviesContainer.innerHTML = '<div class="loading">Error loading preview</div>';
+            }
+        }
+        
+        function renderCurrentData() {
+            const showsContainer = document.getElementById('shows-preview');
+            const moviesContainer = document.getElementById('movies-preview');
+            const mode = document.getElementById('previewMode').value;
+            
+            const renderItems = (items) => {
+                if (!items || items.length === 0) return '<div class="loading">No items found</div>';
+                return items.slice(0, 10).map(item => \`
+                    <div class="item-card \${mode}">
+                        \${mode === 'landscape' 
+                            ? \`<img src="\${item.background}" alt="bg" loading="lazy" />\`
+                            : \`<img src="\${item.poster}" alt="poster" loading="lazy" />\`}
+                        <p class="item-title" title="\${item.name}">\${item.name}</p>
+                    </div>
+                \`).join('');
+            };
+            
+            showsContainer.innerHTML = renderItems(currentShows);
+            moviesContainer.innerHTML = renderItems(currentMovies);
+        }
+        
+        function copyLink() {
+            const c = document.getElementById("manifestUrl");
+            c.select();
+            c.setSelectionRange(0, 99999);
+            navigator.clipboard.writeText(c.value).then(() => {
+                const b = document.getElementById("copyBtn");
+                const o = b.innerText;
+                b.innerText = "Copied!";
+                b.style.backgroundColor = "#660000";
+                setTimeout(() => { b.innerText = o; b.style.backgroundColor = "#8b0000" }, 2000);
+            });
+        }
+        updateLink();
+    </script>
+</body>
+</html>`;
 
 const parseConfig = (configStr) => {
     const configObj = {};
