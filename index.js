@@ -3,6 +3,11 @@ const { addonBuilder } = require("stremio-addon-sdk");
 const sharp = require("sharp");
 
 const app = express();
+app.use((req, res, next) => {
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Access-Control-Allow-Headers", "*");
+    next();
+});
 const TMDB_API_KEY = process.env.TMDB_API_KEY;
 const ADDON_URL = process.env.ADDON_URL;
 
@@ -24,7 +29,7 @@ fetchGenres();
 const manifest = {
     id: "com.trending.custom",
     version: "1.10.29", // Shifted color/luminance sampling to the bottom 50% of the image
-    name: "TMDB Trending Today",
+    name: "TMDB Top Today",
     description: "Customizable Stremio catalogs for top trending TMDB content with optional graphic tags and ranked posters.",
     behaviorHints: { configurable: true, configurationRequired: true },
     resources: ["catalog"],
@@ -593,7 +598,7 @@ app.get('/proxy-image-poster/:type/:id/:rank/:lang.png', async (req, res) => {
 const configUI = `<!DOCTYPE html>
 <html>
 <head>
-    <title>TMDB Trending Today Settings</title>
+    <title>TMDB Top Today</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <style>
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #121212; color: #fff; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; padding: 40px 20px; box-sizing: border-box; }
@@ -639,7 +644,7 @@ const configUI = `<!DOCTYPE html>
 <body>
     <div class="wrapper">
         <div class="container">
-            <h2>TMDB Trending Today Settings</h2>
+            <h2>TMDB Top Today</h2>
             <label class="form-group checkbox-group" for="tags"><input type="checkbox" id="tags" checked onchange="updateLink()"><span>Enable Landscape Poster Tags</span></label>
             <label class="form-group checkbox-group" for="ranked"><input type="checkbox" id="ranked" checked onchange="updateLink()"><span>Enable Portrait Ranked Posters</span></label>
             <label class="form-group checkbox-group" for="digitalOnly"><input type="checkbox" id="digitalOnly" checked onchange="updateLink()"><span>Filter Movies Not Released Digitally</span></label>
@@ -805,7 +810,13 @@ const addonInterface = builder.getInterface();
 app.get('/', (req, res) => res.send(configUI));
 app.get('/configure', (req, res) => res.send(configUI));
 app.get('/manifest.json', (req, res) => res.json(addonInterface.manifest));
-app.get('/:config/manifest.json', (req, res) => res.json(addonInterface.manifest));
+app.get('/:config/manifest.json', (req, res) => {
+    const configuredManifest = JSON.parse(JSON.stringify(addonInterface.manifest));
+    if (configuredManifest.behaviorHints) {
+        configuredManifest.behaviorHints.configurationRequired = false;
+    }
+    res.json(configuredManifest);
+});
 
 app.get('/catalog/:type/:id.json', async (req, res) => {
     try {
