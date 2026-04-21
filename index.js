@@ -243,17 +243,17 @@ builder.defineCatalogHandler(async (args) => {
                         const latestSeason = tvData.seasons?.slice().reverse().find(s => s.season_number > 0);
                         const seasonAir = (latestSeason && latestSeason.air_date) ? new Date(latestSeason.air_date) : null;
 
-                        if (firstAir && firstAir <= TODAY && diffDays(TODAY, firstAir) <= 7) {
+                        if (firstAir && firstAir <= TODAY && diffDays(TODAY, firstAir) <= 6) {
                             itemTag = "premiere";
-                        } else if (firstAir && firstAir <= TODAY && diffDays(TODAY, firstAir) <= 14) {
+                        } else if (firstAir && firstAir <= TODAY && diffDays(TODAY, firstAir) <= 13) {
                             itemTag = "new_series";
                         } else if ((tvData.status === "Ended" || tvData.status === "Canceled") && tvData.number_of_seasons > 1 && lastAir && lastAir <= TODAY && diffDays(TODAY, lastAir) <= 30) {
                             itemTag = "final_season";
-                        } else if (seasonAir && seasonAir <= TODAY && diffDays(TODAY, seasonAir) <= 14) {
+                        } else if (seasonAir && seasonAir <= TODAY && diffDays(TODAY, seasonAir) <= 13) {
                             itemTag = "new_season";
-                        } else if (isFinale && lastAir && lastAir <= TODAY && diffDays(TODAY, lastAir) <= 7) {
+                        } else if (isFinale && lastAir && lastAir <= TODAY && diffDays(TODAY, lastAir) <= 6) {
                             itemTag = "season_finale";
-                        } else if (lastAir && lastAir <= TODAY && diffDays(TODAY, lastAir) <= 7) {
+                        } else if (lastAir && lastAir <= TODAY && diffDays(TODAY, lastAir) <= 6) {
                             itemTag = "new_episode";
                         }
                     }
