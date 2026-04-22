@@ -43,15 +43,23 @@ const manifest = {
 
 const builder = new addonBuilder(manifest);
 
+// Parses dates using the configured local timezone instead of UTC
+const parseLocal = (dateStr) => {
+    if (!dateStr) return null;
+    // Appending T00:00:00 forces JS to parse "YYYY-MM-DD" in local time
+    if (dateStr.length === 10) return new Date(dateStr + "T00:00:00");
+    return new Date(dateStr);
+};
+
 const diffDays = (date1, date2) => {
-    const d1 = new Date(date1); d1.setUTCHours(0, 0, 0, 0);
-    const d2 = new Date(date2); d2.setUTCHours(0, 0, 0, 0);
+    const d1 = new Date(date1); d1.setHours(0, 0, 0, 0);
+    const d2 = new Date(date2); d2.setHours(0, 0, 0, 0);
     return Math.round(Math.abs(d1 - d2) / (1000 * 60 * 60 * 24));
 };
 
 const formatFutureDate = (dateObj) => {
     const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-    return `${monthNames[dateObj.getUTCMonth()]} ${dateObj.getUTCDate()}`;
+    return `${monthNames[dateObj.getMonth()]} ${dateObj.getDate()}`;
 };
 
 const tagDisplayNameMap = {
@@ -166,7 +174,7 @@ builder.defineCatalogHandler(async (args) => {
                     let nextEp = tvData.next_episode_to_air;
 
                     if (nextEp && nextEp.air_date) {
-                        const nextAirDate = new Date(nextEp.air_date);
+                        const nextAirDate = parseLocal(nextEp.air_date);
                         if (nextAirDate <= TODAY) {
                             lastEp = nextEp;
                             nextEp = null;
@@ -191,8 +199,8 @@ builder.defineCatalogHandler(async (args) => {
                         }
                     }
 
-                    const firstAir = tvData.first_air_date ? new Date(tvData.first_air_date) : null;
-                    const lastAir = lastEp && lastEp.air_date ? new Date(lastEp.air_date) : (tvData.last_air_date ? new Date(tvData.last_air_date) : null);
+                    const firstAir = parseLocal(tvData.first_air_date);
+                    const lastAir = lastEp && lastEp.air_date ? parseLocal(lastEp.air_date) : parseLocal(tvData.last_air_date);
 
                     let itemTag = null;
                     let futureDate = null;
@@ -202,7 +210,7 @@ builder.defineCatalogHandler(async (args) => {
                         futureDate = firstAir;
                         isBrandNewSeries = true;
                     } else if (nextEp && nextEp.episode_number === 1) {
-                        futureDate = new Date(nextEp.air_date);
+                        futureDate = parseLocal(nextEp.air_date);
                     }
 
                     if (futureDate) {
@@ -217,7 +225,7 @@ builder.defineCatalogHandler(async (args) => {
 
                     if (!itemTag) {
                         if (nextEp && nextEp.air_date) {
-                            const nextAirDate = new Date(nextEp.air_date);
+                            const nextAirDate = parseLocal(nextEp.air_date);
                             if (nextAirDate > TODAY && diffDays(nextAirDate, TODAY) <= 5) {
                                 let isNextFinale = false;
                                 const nextSeason = tvData.seasons?.find(s => s.season_number === nextEp.season_number);
@@ -241,7 +249,7 @@ builder.defineCatalogHandler(async (args) => {
 
                     if (!itemTag) {
                         const latestSeason = tvData.seasons?.slice().reverse().find(s => s.season_number > 0);
-                        const seasonAir = (latestSeason && latestSeason.air_date) ? new Date(latestSeason.air_date) : null;
+                        const seasonAir = (latestSeason && latestSeason.air_date) ? parseLocal(latestSeason.air_date) : null;
 
                         if (firstAir && firstAir <= TODAY && diffDays(TODAY, firstAir) <= 6) {
                             itemTag = "premiere";
