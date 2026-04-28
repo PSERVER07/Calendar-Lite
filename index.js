@@ -317,7 +317,8 @@ app.get('/proxy-image-backdrop/:type/:id/:tag/:lang.png', async (req, res) => {
         const { type, id, tag, lang } = req.params;
         const tmdbType = type === 'series' ? 'tv' : 'movie';
 
-        const response = await fetch(`https://api.themoviedb.org/3/${tmdbType}/${id}?api_key=${TMDB_API_KEY}&append_to_response=images`);
+        const imgLangs = `${lang},en,null,ja,ko,es,fr,de,hi,it,pt,ru,zh,th,tr,pl,nl,sv,ar`;
+        const response = await fetch(`https://api.themoviedb.org/3/${tmdbType}/${id}?api_key=${TMDB_API_KEY}&append_to_response=images&include_image_language=${imgLangs}`);
         const details = await response.json();
         const images = details.images || details;
         const originalLang = details.original_language;
@@ -506,7 +507,8 @@ app.get('/proxy-image-poster/:type/:id/:rank/:lang.png', async (req, res) => {
         const { type, id, rank, lang } = req.params;
         const tmdbType = type === 'series' ? 'tv' : 'movie';
 
-        const response = await fetch(`https://api.themoviedb.org/3/${tmdbType}/${id}?api_key=${TMDB_API_KEY}&append_to_response=images`);
+        const imgLangs = `${lang},en,null,ja,ko,es,fr,de,hi,it,pt,ru,zh,th,tr,pl,nl,sv,ar`;
+        const response = await fetch(`https://api.themoviedb.org/3/${tmdbType}/${id}?api_key=${TMDB_API_KEY}&append_to_response=images&include_image_language=${imgLangs}`);
         const details = await response.json();
         const images = details.images || details;
         const originalLang = details.original_language;
@@ -608,6 +610,7 @@ const configUI = `<!DOCTYPE html>
 <head>
     <title>TMDB Top Today</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><circle cx=%2250%22 cy=%2250%22 r=%2250%22 fill=%22%238b0000%22/><path d=%22M25 70 l15 -25 l15 15 l20 -30%22 fill=%22none%22 stroke=%22white%22 stroke-width=%228%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22/><path d=%22M55 30 h20 v20%22 fill=%22none%22 stroke=%22white%22 stroke-width=%228%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22/></svg>">
     <style>
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #121212; color: #fff; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; padding: 40px 20px; box-sizing: border-box; }
         .wrapper { display: flex; flex-wrap: wrap; gap: 30px; justify-content: center; align-items: stretch; width: 100%; max-width: 1400px; }
@@ -706,11 +709,11 @@ const configUI = `<!DOCTYPE html>
                 </select>
             </div>
             <div class="preview-section">
-                <h3 class="row-title">Trending Shows Today</h3>
+                <h3 class="row-title">Top Shows Today</h3>
                 <div id="shows-preview" class="horizontal-scroll"><div class="loading">Loading shows...</div></div>
             </div>
             <div class="preview-section" style="margin-top: 20px;">
-                <h3 class="row-title">Trending Movies Today</h3>
+                <h3 class="row-title">Top Movies Today</h3>
                 <div id="movies-preview" class="horizontal-scroll"><div class="loading">Loading movies...</div></div>
             </div>
         </div>
