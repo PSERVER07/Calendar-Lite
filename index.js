@@ -80,6 +80,7 @@ builder.defineCatalogHandler(async (args) => {
 
     const userConfig = {
         tags: config.tags !== "false",
+        logos: config.logos === "true",
         ranked: config.ranked !== "false",
         digitalOnly: config.digitalOnly !== "false",
         listLang: config.listLang || "en",
@@ -304,7 +305,7 @@ builder.defineCatalogHandler(async (args) => {
             type: type,
             genres: itemGenres,
             description: item.overview || "",
-            background: `${ADDON_URL}/proxy-image-backdrop/${type}/${item.id}/${item._tag || 'none'}/${userConfig.posterLang}.png`,
+            background: `${ADDON_URL}/proxy-image-backdrop/${type}/${item.id}/${item._tag || 'none'}/${userConfig.posterLang}/${userConfig.logos ? '1' : '0'}.png`,
             poster: finalPosterUrl
         };
     });
@@ -312,13 +313,19 @@ builder.defineCatalogHandler(async (args) => {
     return { metas };
 });
 
-app.get('/proxy-image-backdrop/:type/:id/:tag/:lang.png', async (req, res) => {
+app.get(['/proxy-image-backdrop/:type/:id/:tag/:lang.png', '/proxy-image-backdrop/:type/:id/:tag/:lang/:logos.png'], async (req, res) => {
     try {
-        const { type, id, tag, lang } = req.params;
+        const { type, id, tag, lang, logos } = req.params;
         const tmdbType = type === 'series' ? 'tv' : 'movie';
+        const showLogos = logos === '1';
 
         const imgLangs = `${lang},en,null,ja,ko,es,fr,de,hi,it,pt,ru,zh,th,tr,pl,nl,sv,ar`;
-        const response = await fetch(`https://api.themoviedb.org/3/${tmdbType}/${id}?api_key=${TMDB_API_KEY}&append_to_response=images&include_image_language=${imgLangs}`);
+        let fetchUrl = `https://api.themoviedb.org/3/${tmdbType}/${id}?api_key=${TMDB_API_KEY}&append_to_response=images&include_image_language=${imgLangs}`;
+        if (showLogos) {
+            fetchUrl = `https://api.themoviedb.org/3/${tmdbType}/${id}?api_key=${TMDB_API_KEY}&append_to_response=images,watch/providers&include_image_language=${imgLangs}`;
+        }
+
+        const response = await fetch(fetchUrl);
         const details = await response.json();
         const images = details.images || details;
         const originalLang = details.original_language;
@@ -348,7 +355,93 @@ app.get('/proxy-image-backdrop/:type/:id/:tag/:lang.png', async (req, res) => {
             }
         }
 
-        if (tag === 'none' || !tagText) {
+        let providerLogoPath = null;
+        let isNetworkLogo = false;
+        let usProviders = null;
+
+        if (showLogos) {
+            if (details['watch/providers'] && details['watch/providers'].results) {
+                const providers = details['watch/providers'].results;
+                usProviders = providers.US || Object.values(providers)[0];
+            }
+
+            const cleanString = (str) => str ? str.toLowerCase().replace(/\+/g, 'plus').replace(/\s+/g, '') : '';
+
+            if (tmdbType === 'tv' && details.networks && details.networks.length > 0) {
+                const networkName = details.networks[0].name;
+
+                const customMappings = {
+                    "hbo": "max",
+                    "cbs": "paramount",
+                    "nbc": "peacock",
+                    "fx": "hulu",
+                    "abc": "hulu",
+                    "fox": "hulu",
+                    "amc": "amc",
+                    "showtime": "paramount",
+                    "the cw": "max",
+                    "bbc": "britbox"
+                };
+
+                const normalizedNetwork = networkName.toLowerCase();
+                let targetProvider = customMappings[normalizedNetwork] || cleanString(networkName);
+
+                if (usProviders && usProviders.flatrate) {
+                    const matchedProvider = usProviders.flatrate.find(p => {
+                        const pName = cleanString(p.provider_name);
+                        return pName.includes(targetProvider) || targetProvider.includes(pName);
+                    });
+                    if (matchedProvider) {
+                        providerLogoPath = matchedProvider.logo_path;
+                    }
+                }
+            }
+
+            if (!providerLogoPath && usProviders && usProviders.flatrate && usProviders.flatrate.length > 0) {
+                // Filter out undesired add-on channel providers
+                const validProviders = usProviders.flatrate.filter(p => {
+                    const pName = cleanString(p.provider_name);
+                    const isAmazonChannel = pName.includes('amazon') && pName.includes('channel');
+                    const isRokuPremium = pName.includes('roku') && pName.includes('premium');
+                    const isAppleChannel = pName.includes('apple') && pName.includes('channel');
+                    return !isAmazonChannel && !isRokuPremium && !isAppleChannel;
+                });
+
+                if (validProviders.length > 0) {
+                    // Prioritize other specific networks over Amazon, as Amazon often aggregates them
+                    const topTiers = ['netflix', 'max', 'disney', 'hulu', 'apple', 'paramount', 'peacock', 'crunchyroll', 'mgm', 'starz', 'showtime', 'amc', 'amazon'];
+
+                    let bestProvider = null;
+                    let bestPriority = Infinity;
+
+                    for (const p of validProviders) {
+                        const pName = cleanString(p.provider_name);
+                        const priorityIndex = topTiers.findIndex(t => pName.includes(t));
+
+                        if (priorityIndex !== -1 && priorityIndex < bestPriority) {
+                            bestPriority = priorityIndex;
+                            bestProvider = p;
+                        }
+                    }
+
+                    // If no top tier matched, pick the first one that isn't Amazon (if possible)
+                    if (!bestProvider) {
+                        bestProvider = validProviders.find(p => !cleanString(p.provider_name).includes('amazon')) || validProviders[0];
+                    }
+
+                    providerLogoPath = bestProvider.logo_path;
+                }
+            }
+
+            if (!providerLogoPath && tmdbType === 'tv' && details.networks && details.networks.length > 0) {
+                providerLogoPath = details.networks[0].logo_path;
+                isNetworkLogo = true;
+            }
+        }
+
+        const drawTag = tag !== 'none' && !!tagText;
+
+        if (!drawTag && !providerLogoPath) {
             return res.redirect(301, `https://image.tmdb.org/t/p/w1280${backdrop.file_path}`);
         }
 
@@ -359,134 +452,174 @@ app.get('/proxy-image-backdrop/:type/:id/:tag/:lang.png', async (req, res) => {
         const metadata = await backdropImage.metadata();
         const width = metadata.width;
 
-        const tagHeight = Math.round(metadata.height * 0.15);
-        const fontSize = Math.round(tagHeight * 0.75);
-
-        let estimatedTextWidth = 0;
-        for (let i = 0; i < tagText.length; i++) {
-            const char = tagText[i];
-            if ("iIl1., -".includes(char)) {
-                estimatedTextWidth += fontSize * 0.25;
-            } else if ("rftj".includes(char)) {
-                estimatedTextWidth += fontSize * 0.35;
-            } else if ("WMwm@".includes(char)) {
-                estimatedTextWidth += fontSize * 0.85;
-            } else if ("NQDOUCGRHKBAVXY".includes(char)) {
-                estimatedTextWidth += fontSize * 0.70;
-            } else if ("PESZT".includes(char)) {
-                estimatedTextWidth += fontSize * 0.60;
-            } else {
-                estimatedTextWidth += fontSize * 0.50;
-            }
-        }
-
-        const horizontalPadding = fontSize * 1.8;
-        const tagWidth = Math.round(estimatedTextWidth + horizontalPadding);
-
-        const startX = Math.round((width / 2) - (tagWidth / 2));
-        const startY = metadata.height - tagHeight;
-        const r = Math.round(tagHeight * 0.25);
-
-        const extractLeft = Math.max(0, startX);
-        const extractTop = Math.max(0, startY);
-        const extractWidth = Math.min(tagWidth, width - extractLeft);
-        const extractHeight = Math.min(tagHeight, metadata.height - extractTop);
-
-        let tagFillColor = "#1a1a1a";
-        let textColor = "white";
-        let bottomHalfLuminance = 0;
-
-        try {
-            // --- NEW: Isolate the bottom 50% of the image for sampling ---
-            const bottomHalfTop = Math.floor(metadata.height / 2);
-            const bottomHalfHeight = metadata.height - bottomHalfTop;
-
-            const bottomHalfBuffer = await sharp(backdropBuffer)
-                .extract({ left: 0, top: bottomHalfTop, width: metadata.width, height: bottomHalfHeight })
-                .toBuffer();
-
-            const stats = await sharp(bottomHalfBuffer).stats();
-
-            if (stats.channels.length >= 3) {
-                const meanR = Math.round(stats.channels[0].mean);
-                const meanG = Math.round(stats.channels[1].mean);
-                const meanB = Math.round(stats.channels[2].mean);
-
-                tagFillColor = `rgb(${meanR}, ${meanG}, ${meanB})`;
-                bottomHalfLuminance = (0.299 * meanR) + (0.587 * meanG) + (0.114 * meanB);
-
-            } else if (stats.channels.length > 0) {
-                const meanVal = Math.round(stats.channels[0].mean);
-                tagFillColor = `rgb(${meanVal}, ${meanVal}, ${meanVal})`;
-                bottomHalfLuminance = meanVal;
-            }
-
-            // Adjusted threshold slightly to account for the larger sample area
-            if (bottomHalfLuminance > 140) {
-                textColor = "#121212";
-            } else {
-                textColor = "#ffffff";
-            }
-        } catch (statsErr) {
-            console.error("Thematic bottom-half color extraction failed, using defaults:", statsErr.message);
-        }
-
-        const pathD = `
-            M ${startX},${metadata.height} 
-            L ${startX + tagWidth},${metadata.height} 
-            L ${startX + tagWidth},${startY + r}
-            Q ${startX + tagWidth},${startY} ${startX + tagWidth - r},${startY}
-            L ${startX + r},${startY} 
-            Q ${startX},${startY} ${startX},${startY + r} 
-            Z
-        `;
-
-        let tagFillOpacity = bottomHalfLuminance > 140 ? "0.65" : "0.45";
         let compositeOperations = [];
 
-        try {
-            // The physical blur still happens ONLY on the exact localized cutout!
-            const blurredRect = await sharp(backdropBuffer)
-                .extract({ left: extractLeft, top: extractTop, width: extractWidth, height: extractHeight })
-                .blur(15)
-                .png()
-                .toBuffer();
+        if (drawTag) {
+            const tagHeight = Math.round(metadata.height * 0.15);
+            const fontSize = Math.round(tagHeight * 0.75);
 
-            const localPathD = `
-                M 0,${extractHeight} 
-                L ${extractWidth},${extractHeight} 
-                L ${extractWidth},${r}
-                Q ${extractWidth},0 ${extractWidth - r},0
-                L ${r},0 
-                Q 0,0 0,${r} 
+            let estimatedTextWidth = 0;
+            for (let i = 0; i < tagText.length; i++) {
+                const char = tagText[i];
+                if ("iIl1., -".includes(char)) {
+                    estimatedTextWidth += fontSize * 0.25;
+                } else if ("rftj".includes(char)) {
+                    estimatedTextWidth += fontSize * 0.35;
+                } else if ("WMwm@".includes(char)) {
+                    estimatedTextWidth += fontSize * 0.85;
+                } else if ("NQDOUCGRHKBAVXY".includes(char)) {
+                    estimatedTextWidth += fontSize * 0.70;
+                } else if ("PESZT".includes(char)) {
+                    estimatedTextWidth += fontSize * 0.60;
+                } else {
+                    estimatedTextWidth += fontSize * 0.50;
+                }
+            }
+
+            const horizontalPadding = fontSize * 1.8;
+            const tagWidth = Math.round(estimatedTextWidth + horizontalPadding);
+
+            const startX = Math.round((width / 2) - (tagWidth / 2));
+            const startY = metadata.height - tagHeight;
+            const r = Math.round(tagHeight * 0.25);
+
+            const extractLeft = Math.max(0, startX);
+            const extractTop = Math.max(0, startY);
+            const extractWidth = Math.min(tagWidth, width - extractLeft);
+            const extractHeight = Math.min(tagHeight, metadata.height - extractTop);
+
+            let tagFillColor = "#1a1a1a";
+            let textColor = "white";
+            let bottomHalfLuminance = 0;
+
+            try {
+                // --- NEW: Isolate the bottom 50% of the image for sampling ---
+                const bottomHalfTop = Math.floor(metadata.height / 2);
+                const bottomHalfHeight = metadata.height - bottomHalfTop;
+
+                const bottomHalfBuffer = await sharp(backdropBuffer)
+                    .extract({ left: 0, top: bottomHalfTop, width: metadata.width, height: bottomHalfHeight })
+                    .toBuffer();
+
+                const stats = await sharp(bottomHalfBuffer).stats();
+
+                if (stats.channels.length >= 3) {
+                    const meanR = Math.round(stats.channels[0].mean);
+                    const meanG = Math.round(stats.channels[1].mean);
+                    const meanB = Math.round(stats.channels[2].mean);
+
+                    tagFillColor = `rgb(${meanR}, ${meanG}, ${meanB})`;
+                    bottomHalfLuminance = (0.299 * meanR) + (0.587 * meanG) + (0.114 * meanB);
+
+                } else if (stats.channels.length > 0) {
+                    const meanVal = Math.round(stats.channels[0].mean);
+                    tagFillColor = `rgb(${meanVal}, ${meanVal}, ${meanVal})`;
+                    bottomHalfLuminance = meanVal;
+                }
+
+                // Adjusted threshold slightly to account for the larger sample area
+                if (bottomHalfLuminance > 140) {
+                    textColor = "#121212";
+                } else {
+                    textColor = "#ffffff";
+                }
+            } catch (statsErr) {
+                console.error("Thematic bottom-half color extraction failed, using defaults:", statsErr.message);
+            }
+
+            const pathD = `
+                M ${startX},${metadata.height} 
+                L ${startX + tagWidth},${metadata.height} 
+                L ${startX + tagWidth},${startY + r}
+                Q ${startX + tagWidth},${startY} ${startX + tagWidth - r},${startY}
+                L ${startX + r},${startY} 
+                Q ${startX},${startY} ${startX},${startY + r} 
                 Z
             `;
-            const localMaskSvg = `
-            <svg width="${extractWidth}" height="${extractHeight}">
-                <path d="${localPathD}" fill="white" />
-            </svg>`;
 
-            const shapedBlurredBox = await sharp(blurredRect)
-                .composite([{ input: Buffer.from(localMaskSvg), blend: 'dest-in' }])
-                .png()
-                .toBuffer();
+            let tagFillOpacity = bottomHalfLuminance > 140 ? "0.65" : "0.45";
 
-            compositeOperations.push({ input: shapedBlurredBox, top: extractTop, left: extractLeft });
-        } catch (blurErr) {
-            console.error("Frosted blur pipeline failed:", blurErr.message);
-            tagFillOpacity = "0.85";
+            try {
+                // The physical blur still happens ONLY on the exact localized cutout!
+                const blurredRect = await sharp(backdropBuffer)
+                    .extract({ left: extractLeft, top: extractTop, width: extractWidth, height: extractHeight })
+                    .blur(15)
+                    .png()
+                    .toBuffer();
+
+                const localPathD = `
+                    M 0,${extractHeight} 
+                    L ${extractWidth},${extractHeight} 
+                    L ${extractWidth},${r}
+                    Q ${extractWidth},0 ${extractWidth - r},0
+                    L ${r},0 
+                    Q 0,0 0,${r} 
+                    Z
+                `;
+                const localMaskSvg = `
+                <svg width="${extractWidth}" height="${extractHeight}">
+                    <path d="${localPathD}" fill="white" />
+                </svg>`;
+
+                const shapedBlurredBox = await sharp(blurredRect)
+                    .composite([{ input: Buffer.from(localMaskSvg), blend: 'dest-in' }])
+                    .png()
+                    .toBuffer();
+
+                compositeOperations.push({ input: shapedBlurredBox, top: extractTop, left: extractLeft });
+            } catch (blurErr) {
+                console.error("Frosted blur pipeline failed:", blurErr.message);
+                tagFillOpacity = "0.85";
+            }
+
+            const fontStack = "'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif";
+
+            const svgTag = `
+            <svg width="${width}" height="${metadata.height}">
+                <path d="${pathD}" fill="${tagFillColor}" fill-opacity="${tagFillOpacity}"/>
+                <text x="${width / 2}" y="${startY + (tagHeight / 2) + (fontSize * 0.35)}" text-anchor="middle" font-family="${fontStack}" font-size="${fontSize}" fill="${textColor}" font-weight="bold">${tagText}</text>
+            </svg>
+            `;
+
+            compositeOperations.push({ input: Buffer.from(svgTag), top: 0, left: 0 });
         }
 
-        const fontStack = "'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif";
+        if (providerLogoPath) {
+            try {
+                const logoRes = await fetch(`https://image.tmdb.org/t/p/w154${providerLogoPath}`);
+                if (logoRes.ok) {
+                    const logoBuf = Buffer.from(await logoRes.arrayBuffer());
+                    const logoWidth = Math.round(width * 0.10); // 10% of backdrop width
+                    const resizedLogo = await sharp(logoBuf)
+                        .resize({ width: logoWidth, withoutEnlargement: true })
+                        .png()
+                        .toBuffer();
 
-        const svgTag = `
-        <svg width="${width}" height="${metadata.height}">
-            <path d="${pathD}" fill="${tagFillColor}" fill-opacity="${tagFillOpacity}"/>
-            <text x="${width / 2}" y="${startY + (tagHeight / 2) + (fontSize * 0.35)}" text-anchor="middle" font-family="${fontStack}" font-size="${fontSize}" fill="${textColor}" font-weight="bold">${tagText}</text>
-        </svg>
-        `;
+                    const resizedMeta = await sharp(resizedLogo).metadata();
+                    let finalLogo = resizedLogo;
 
-        compositeOperations.push({ input: Buffer.from(svgTag), top: 0, left: 0 });
+                    if (!isNetworkLogo) {
+                        const maskRadius = Math.round(logoWidth * 0.2);
+                        const roundedMask = Buffer.from(`
+                            <svg width="${resizedMeta.width}" height="${resizedMeta.height}">
+                                <rect x="0" y="0" width="${resizedMeta.width}" height="${resizedMeta.height}" rx="${maskRadius}" ry="${maskRadius}" fill="white"/>
+                            </svg>
+                        `);
+
+                        finalLogo = await sharp(resizedLogo)
+                            .composite([{ input: roundedMask, blend: 'dest-in' }])
+                            .png()
+                            .toBuffer();
+                    }
+
+                    compositeOperations.push({
+                        input: finalLogo,
+                        top: Math.round(metadata.height * 0.04),
+                        left: Math.round(width - resizedMeta.width - metadata.height * 0.04)
+                    });
+                }
+            } catch (e) { console.error("Provider logo error:", e); }
+        }
 
         const finalImageBuffer = await backdropImage
             .composite(compositeOperations)
@@ -637,7 +770,7 @@ const configUI = `<!DOCTYPE html>
         .horizontal-scroll::-webkit-scrollbar-track { background: #2a2a2a; border-radius: 4px; }
         .horizontal-scroll::-webkit-scrollbar-thumb { background: #555; border-radius: 4px; }
         .horizontal-scroll::-webkit-scrollbar-thumb:hover { background: #8b0000; }
-        .item-card { display: flex; flex-direction: column; gap: 10px; }
+        .item-card { display: flex; flex-direction: column; gap: 10px; text-decoration: none; }
         .item-card.landscape { width: 280px; }
         .item-card.portrait { width: 150px; }
         .item-card img { object-fit: cover; border-radius: 6px; background-color: #2a2a2a; }
@@ -657,6 +790,7 @@ const configUI = `<!DOCTYPE html>
         <div class="container">
             <h2>TMDB Top Today</h2>
             <label class="form-group checkbox-group" for="tags"><input type="checkbox" id="tags" checked onchange="updateLink()"><span>Enable Landscape Poster Tags</span></label>
+            <label class="form-group checkbox-group" for="logos"><input type="checkbox" id="logos" onchange="updateLink()"><span>Enable Landscape Streaming Logos</span></label>
             <label class="form-group checkbox-group" for="ranked"><input type="checkbox" id="ranked" checked onchange="updateLink()"><span>Enable Portrait Ranked Posters</span></label>
             <label class="form-group checkbox-group" for="digitalOnly"><input type="checkbox" id="digitalOnly" checked onchange="updateLink()"><span>Filter Movies Not Released Digitally</span></label>
             <div class="form-group">
@@ -725,12 +859,13 @@ const configUI = `<!DOCTYPE html>
 
         function updateLink() {
             const t = document.getElementById('tags').checked,
+                  lo = document.getElementById('logos').checked,
                   r = document.getElementById('ranked').checked,
                   d = document.getElementById('digitalOnly').checked,
                   l = document.getElementById('listLang').value,
                   p = document.getElementById('posterLang').value;
                   
-            const c = \`tags=\${t}|ranked=\${r}|digitalOnly=\${d}|listLang=\${l}|posterLang=\${p}\`;
+            const c = \`tags=\${t}|logos=\${lo}|ranked=\${r}|digitalOnly=\${d}|listLang=\${l}|posterLang=\${p}\`;
             const h = window.location.host, pr = window.location.protocol;
             
             document.getElementById('manifestUrl').value = \`\${pr}//\${h}/\${c}/manifest.json\`;
@@ -774,14 +909,18 @@ const configUI = `<!DOCTYPE html>
             
             const renderItems = (items) => {
                 if (!items || items.length === 0) return '<div class="loading">No items found</div>';
-                return items.slice(0, 10).map(item => \`
-                    <div class="item-card \${mode}">
+                return items.slice(0, 10).map(item => {
+                    const tmdbId = item.id.replace('tmdb:', '');
+                    const tmdbType = item.type === 'series' ? 'tv' : 'movie';
+                    return \`
+                    <a href="https://www.themoviedb.org/\${tmdbType}/\${tmdbId}" target="_blank" class="item-card \${mode}">
                         \${mode === 'landscape' 
                             ? \`<img src="\${item.background}" alt="bg" loading="lazy" />\`
                             : \`<img src="\${item.poster}" alt="poster" loading="lazy" />\`}
                         <p class="item-title" title="\${item.name}">\${item.name}</p>
-                    </div>
-                \`).join('');
+                    </a>
+                    \`;
+                }).join('');
             };
             
             showsContainer.innerHTML = renderItems(currentShows);
