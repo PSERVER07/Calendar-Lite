@@ -11,6 +11,10 @@ app.use((req, res, next) => {
 const TMDB_API_KEY = process.env.TMDB_API_KEY;
 const ADDON_URL = process.env.ADDON_URL;
 
+// In-memory cache for generated images to reduce re-rendering
+const imageCache = new Map();
+const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
+
 // Fetch and cache TMDB genres on startup
 let genreMap = {};
 async function fetchGenres() {
@@ -314,6 +318,23 @@ builder.defineCatalogHandler(async (args) => {
 });
 
 app.get(['/proxy-image-backdrop/:type/:id/:tag/:lang.png', '/proxy-image-backdrop/:type/:id/:tag/:lang/:logos.png'], async (req, res) => {
+    const cacheKey = req.originalUrl;
+    const cachedItem = imageCache.get(cacheKey);
+    if (cachedItem && Date.now() < cachedItem.expires) {
+        res.set("Content-Type", "image/png");
+        res.set("Cache-Control", "public, max-age=86400");
+        return res.send(cachedItem.buffer);
+    }
+
+    // On a cache miss, run a cleanup with a small chance to avoid performance hits.
+    if (Math.random() < 0.05) {
+        for (const [key, value] of imageCache.entries()) {
+            if (Date.now() > value.expires) {
+                imageCache.delete(key);
+            }
+        }
+    }
+
     try {
         const { type, id, tag, lang, logos } = req.params;
         const tmdbType = type === 'series' ? 'tv' : 'movie';
@@ -626,6 +647,12 @@ app.get(['/proxy-image-backdrop/:type/:id/:tag/:lang.png', '/proxy-image-backdro
             .png()
             .toBuffer();
 
+        // Add the newly generated image to the cache
+        imageCache.set(cacheKey, {
+            buffer: finalImageBuffer,
+            expires: Date.now() + CACHE_TTL_MS
+        });
+
         res.set("Content-Type", "image/png");
         res.set("Cache-Control", "public, max-age=86400");
         res.send(finalImageBuffer);
@@ -636,6 +663,23 @@ app.get(['/proxy-image-backdrop/:type/:id/:tag/:lang.png', '/proxy-image-backdro
 });
 
 app.get('/proxy-image-poster/:type/:id/:rank/:lang.png', async (req, res) => {
+    const cacheKey = req.originalUrl;
+    const cachedItem = imageCache.get(cacheKey);
+    if (cachedItem && Date.now() < cachedItem.expires) {
+        res.set("Content-Type", "image/png");
+        res.set("Cache-Control", "public, max-age=86400");
+        return res.send(cachedItem.buffer);
+    }
+
+    // On a cache miss, run a cleanup with a small chance to avoid performance hits.
+    if (Math.random() < 0.05) {
+        for (const [key, value] of imageCache.entries()) {
+            if (Date.now() > value.expires) {
+                imageCache.delete(key);
+            }
+        }
+    }
+
     try {
         const { type, id, rank, lang } = req.params;
         const tmdbType = type === 'series' ? 'tv' : 'movie';
@@ -728,6 +772,12 @@ app.get('/proxy-image-poster/:type/:id/:rank/:lang.png', async (req, res) => {
             ])
             .png()
             .toBuffer();
+
+        // Add the newly generated image to the cache
+        imageCache.set(cacheKey, {
+            buffer: finalImageBuffer,
+            expires: Date.now() + CACHE_TTL_MS
+        });
 
         res.set("Content-Type", "image/png");
         res.set("Cache-Control", "public, max-age=86400");
