@@ -340,7 +340,8 @@ app.get(['/proxy-image-backdrop/:type/:id/:tag/:lang.png', '/proxy-image-backdro
         const tmdbType = type === 'series' ? 'tv' : 'movie';
         const showLogos = logos === '1';
 
-        const imgLangs = `${lang},en,null,ja,ko,es,fr,de,hi,it,pt,ru,zh,th,tr,pl,nl,sv,ar`;
+        const fallbackLangs = ['en', 'null', 'ja', 'ko', 'es', 'fr', 'de', 'hi', 'it', 'pt', 'ru', 'zh', 'th', 'tr', 'pl', 'nl', 'sv', 'ar'];
+        const imgLangs = [...new Set([lang, ...fallbackLangs])].join(',');
         let fetchUrl = `https://api.themoviedb.org/3/${tmdbType}/${id}?api_key=${TMDB_API_KEY}&append_to_response=images&include_image_language=${imgLangs}`;
         if (showLogos) {
             fetchUrl = `https://api.themoviedb.org/3/${tmdbType}/${id}?api_key=${TMDB_API_KEY}&append_to_response=images,watch/providers&include_image_language=${imgLangs}`;
@@ -684,7 +685,8 @@ app.get('/proxy-image-poster/:type/:id/:rank/:lang.png', async (req, res) => {
         const { type, id, rank, lang } = req.params;
         const tmdbType = type === 'series' ? 'tv' : 'movie';
 
-        const imgLangs = `${lang},en,null,ja,ko,es,fr,de,hi,it,pt,ru,zh,th,tr,pl,nl,sv,ar`;
+        const fallbackLangs = ['en', 'null', 'ja', 'ko', 'es', 'fr', 'de', 'hi', 'it', 'pt', 'ru', 'zh', 'th', 'tr', 'pl', 'nl', 'sv', 'ar'];
+        const imgLangs = [...new Set([lang, ...fallbackLangs])].join(',');
         const response = await fetch(`https://api.themoviedb.org/3/${tmdbType}/${id}?api_key=${TMDB_API_KEY}&append_to_response=images&include_image_language=${imgLangs}`);
         const details = await response.json();
         const images = details.images || details;
