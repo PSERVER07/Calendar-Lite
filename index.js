@@ -194,7 +194,35 @@ builder.defineCatalogHandler(async (args) => {
                 const tvDetailsData = await Promise.all(pageItems.map(async (show) => {
                     try {
                         const res = await fetch(`https://api.themoviedb.org/3/tv/${show.id}?api_key=${TMDB_API_KEY}`);
-                        return await res.json();
+                        const data = await res.json();
+
+                        // Intercept TMDB hiding multiple same-day episode drops
+                        let nextEp = data.next_episode_to_air;
+                        if (nextEp && nextEp.air_date) {
+                            const nextAirDate = parseLocal(nextEp.air_date);
+                            if (nextAirDate <= TODAY) {
+                                const currentSeason = data.seasons?.find(s => s.season_number === nextEp.season_number);
+                                const expectedCount = currentSeason?.episode_count || 0;
+
+                                // If it's not the finale, check if later episodes also air today
+                                if (expectedCount > 0 && nextEp.episode_number < expectedCount) {
+                                    try {
+                                        const seasonRes = await fetch(`https://api.themoviedb.org/3/tv/${show.id}/season/${nextEp.season_number}?api_key=${TMDB_API_KEY}`);
+                                        const seasonData = await seasonRes.json();
+                                        if (seasonData.episodes) {
+                                            const validEpisodes = seasonData.episodes.filter(ep => ep.air_date && parseLocal(ep.air_date) <= TODAY);
+                                            if (validEpisodes.length > 0) {
+                                                const latestToday = validEpisodes[validEpisodes.length - 1];
+                                                if (latestToday.episode_number > nextEp.episode_number) {
+                                                    data.next_episode_to_air = latestToday;
+                                                }
+                                            }
+                                        }
+                                    } catch (seasonErr) { /* ignore */ }
+                                }
+                            }
+                        }
+                        return data;
                     } catch (err) { return null; }
                 }));
 
