@@ -69,7 +69,8 @@ const formatFutureDate = (dateObj) => {
 const tagDisplayNameMap = {
     "just_added": "Just Added",
     "coming_soon": "Coming Soon",
-    "new_movie": "New Movie",
+    "now_streaming": "Now Streaming",
+    "out_on_bluray": "Now on Blu-ray",
     "premiere": "Premiere",
     "new_series": "New Series",
     "season_finale": "Season Finale",
@@ -116,31 +117,59 @@ builder.defineCatalogHandler(async (args) => {
                 try {
                     const releaseRes = await fetch(`https://api.themoviedb.org/3/movie/${movie.id}/release_dates?api_key=${TMDB_API_KEY}`);
                     const releaseData = await releaseRes.json();
+
+                    let earliestTheatrical = null;
                     let earliestDigital = null;
+                    let earliestPhysical = null;
 
                     if (releaseData.results) {
                         for (const country of releaseData.results) {
                             for (const release of country.release_dates) {
-                                if (release.type === 4 || release.type === 5) {
-                                    const relDate = new Date(release.release_date);
+                                const relDate = parseLocal(release.release_date.substring(0, 10));
+                                if (release.type === 1 || release.type === 2 || release.type === 3) {
+                                    if (!earliestTheatrical || relDate < earliestTheatrical) earliestTheatrical = relDate;
+                                } else if (release.type === 4) {
                                     if (!earliestDigital || relDate < earliestDigital) earliestDigital = relDate;
+                                } else if (release.type === 5) {
+                                    if (!earliestPhysical || relDate < earliestPhysical) earliestPhysical = relDate;
                                 }
                             }
                         }
                     }
-                    return earliestDigital;
-                } catch (err) { return null; }
+                    return { earliestTheatrical, earliestDigital, earliestPhysical };
+                } catch (err) { return { earliestTheatrical: null, earliestDigital: null, earliestPhysical: null }; }
             }));
 
-            pageItems.forEach((item, index) => item._earliestDigital = releaseDatesData[index]);
+            pageItems.forEach((item, index) => {
+                const dates = releaseDatesData[index] || {};
+                item._earliestTheatrical = dates.earliestTheatrical;
+                item._earliestDigital = dates.earliestDigital;
+                item._earliestPhysical = dates.earliestPhysical;
+            });
 
             if (userConfig.digitalOnly) {
-                pageItems = pageItems.filter(item => item._earliestDigital && item._earliestDigital <= TODAY);
+                pageItems = pageItems.filter(item => {
+                    const hasDigital = item._earliestDigital && item._earliestDigital <= TODAY;
+                    const hasPhysical = item._earliestPhysical && item._earliestPhysical <= TODAY;
+                    return hasDigital || hasPhysical;
+                });
             }
 
             pageItems.forEach(item => {
                 if (userConfig.tags) {
-                    if (!item._earliestDigital || item._earliestDigital > TODAY) {
+                    const daysSincePhysical = (item._earliestPhysical && item._earliestPhysical <= TODAY) ? diffDays(TODAY, item._earliestPhysical) : null;
+                    const daysSinceDigital = (item._earliestDigital && item._earliestDigital <= TODAY) ? diffDays(TODAY, item._earliestDigital) : null;
+
+                    if (daysSincePhysical !== null && daysSincePhysical <= 14) {
+                        item._tag = "out_on_bluray";
+                    } else if (daysSinceDigital !== null && daysSinceDigital <= 14) {
+                        const hasPastTheatrical = item._earliestTheatrical && item._earliestTheatrical < item._earliestDigital;
+                        if (hasPastTheatrical) {
+                            item._tag = "just_added";
+                        } else {
+                            item._tag = "now_streaming";
+                        }
+                    } else if (!item._earliestDigital || item._earliestDigital > TODAY) {
                         if (item._earliestDigital) {
                             const daysUntil = diffDays(item._earliestDigital, TODAY);
                             if (daysUntil <= 14) {
@@ -153,9 +182,7 @@ builder.defineCatalogHandler(async (args) => {
                             item._tag = "coming_soon";
                         }
                     } else {
-                        const daysSince = diffDays(TODAY, item._earliestDigital);
-                        if (daysSince <= 7) item._tag = "just_added";
-                        else if (daysSince <= 30) item._tag = "new_movie";
+                        item._tag = "none";
                     }
                 } else {
                     item._tag = "none";
@@ -264,7 +291,7 @@ builder.defineCatalogHandler(async (args) => {
                             itemTag = "final_season";
                         } else if (seasonAir && seasonAir <= TODAY && diffDays(TODAY, seasonAir) <= 13) {
                             itemTag = "new_season";
-                        } else if (isFinale && lastAir && lastAir <= TODAY && diffDays(TODAY, lastAir) <= 6) {
+                        } else if (isFinale && lastAir && lastAir <= TODAY && diffDays(TODAY, lastAir) <= 13) {
                             itemTag = "season_finale";
                         } else if (lastAir && lastAir <= TODAY && diffDays(TODAY, lastAir) <= 6) {
                             itemTag = "new_episode";
@@ -464,7 +491,7 @@ app.get(['/proxy-image-backdrop/:type/:id/:tag/:lang.png', '/proxy-image-backdro
         const drawTag = tag !== 'none' && !!tagText;
 
         if (!drawTag && !providerLogoPath) {
-            return res.redirect(301, `https://image.tmdb.org/t/p/w1280${backdrop.file_path}`);
+            return res.redirect(301, `https://image.tmdb.org/t/p/original${backdrop.file_path}`);
         }
 
         const backdropResponse = await fetch(`https://image.tmdb.org/t/p/w1280${backdrop.file_path}`);

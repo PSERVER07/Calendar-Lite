@@ -4,16 +4,18 @@ This document outlines the various landscape graphic tags applied to content and
 
 ## Movies
 
-Movie tags are strictly based on the **Digital Release Date** (types 4 and 5 in the TMDB release dates API) rather than theatrical release dates.
+Movie tags are calculated using the earliest available **Theatrical**, **Digital (VOD)**, and **Physical (Blu-ray/DVD)** release dates from the TMDB API.
 
 *   **`Coming [Month] [Day]`**
     *   **Logic:** The movie has not been released digitally yet, but its digital release date is exactly **14 days or fewer** away.
 *   **`Coming Soon`**
     *   **Logic:** The movie has not been released digitally yet, and the release date is either unknown or more than 14 days in the future.
+*   **`Now on Blu-ray`**
+    *   **Logic:** The movie was released on physical media (Blu-ray/DVD/4K) within the last **14 days**.
+*   **`Now Streaming`**
+    *   **Logic:** The movie was released digitally within the last **14 days**, and it either skipped theaters or its theatrical release date was the same as its digital release date.
 *   **`Just Added`**
-    *   **Logic:** The movie was released digitally within the last **7 days**.
-*   **`New Movie`**
-    *   **Logic:** The movie was released digitally between **8 and 30 days** ago.
+    *   **Logic:** The movie was released digitally within the last **14 days**, and it had a theatrical release date prior to its digital release.
 
 ---
 
@@ -37,7 +39,7 @@ Series tags are calculated based on a combination of first air dates, recent/upc
 *   **`New Season`**
     *   **Logic:** A brand new season (season 2 or later) premiered within the last **13 days**.
 *   **`Season Finale`**
-    *   **Logic:** A season finale aired within the last **6 days**.
+    *   **Logic:** A season finale aired within the last **13 days**.
 *   **`New Episode`**
     *   **Logic:** A standard new episode aired within the last **6 days**.
 *   **`Final Season`**
