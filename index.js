@@ -8,14 +8,13 @@ app.use((req, res, next) => {
     res.setHeader("Access-Control-Allow-Headers", "*");
     next();
 });
+
 const TMDB_API_KEY = process.env.TMDB_API_KEY;
 const ADDON_URL = process.env.ADDON_URL;
 
-// In-memory cache for generated images to reduce re-rendering
 const imageCache = new Map();
-const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
+const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
-// Fetch and cache TMDB genres on startup
 let genreMap = {};
 async function fetchGenres() {
     try {
@@ -32,7 +31,7 @@ fetchGenres();
 
 const manifest = {
     id: "com.trending.custom",
-    version: "1.10.29", // Shifted color/luminance sampling to the bottom 50% of the image
+    version: "1.12.2",
     name: "TMDB Top Today",
     description: "Customizable Stremio catalogs for top trending TMDB content with optional graphic tags and ranked posters.",
     behaviorHints: { configurable: true, configurationRequired: true },
@@ -47,10 +46,10 @@ const manifest = {
 
 const builder = new addonBuilder(manifest);
 
-// Parses dates using the configured local timezone instead of UTC
+// ─── Date helpers ────────────────────────────────────────────────────────────
+
 const parseLocal = (dateStr) => {
     if (!dateStr) return null;
-    // Appending T00:00:00 forces JS to parse "YYYY-MM-DD" in local time
     if (dateStr.length === 10) return new Date(dateStr + "T00:00:00");
     return new Date(dateStr);
 };
@@ -78,6 +77,286 @@ const tagDisplayNameMap = {
     "new_season": "New Season",
     "new_episode": "New Episode"
 };
+
+// ─── Shared image-generation helpers ─────────────────────────────────────────
+
+/**
+ * Resolve a tag string to its display text, or null if none.
+ */
+function parseTagText(tag) {
+    if (!tag || tag === 'none') return null;
+    if (tagDisplayNameMap[tag]) return tagDisplayNameMap[tag];
+    if (tag.startsWith('coming_date_')) {
+        const [month, day] = tag.replace('coming_date_', '').split('_');
+        return `Coming ${month} ${day}`;
+    }
+    if (tag.startsWith('finale_date_')) {
+        const [month, day] = tag.replace('finale_date_', '').split('_');
+        return `Finale ${month} ${day}`;
+    }
+    return null;
+}
+
+/**
+ * Determine the best provider/network logo to show.
+ * Returns { path, isNetwork } or null.
+ */
+function resolveProviderLogoInfo(tmdbType, details) {
+    const cleanString = (str) => str ? str.toLowerCase().replace(/\+/g, 'plus').replace(/\s+/g, '') : '';
+    const customMappings = {
+        "hbo": "max", "cbs": "paramount", "nbc": "peacock",
+        "fx": "hulu", "abc": "hulu", "fox": "hulu",
+        "amc": "amc", "showtime": "paramount", "the cw": "max", "bbc": "britbox"
+    };
+    const topTiers = ['netflix', 'max', 'disney', 'hulu', 'apple', 'paramount', 'peacock',
+        'crunchyroll', 'mgm', 'starz', 'showtime', 'amc', 'amazon'];
+
+    let usProviders = null;
+    if (details['watch/providers']?.results) {
+        const providers = details['watch/providers'].results;
+        usProviders = providers.US || Object.values(providers)[0];
+    }
+
+    // 1. Match TV network → streaming provider
+    if (tmdbType === 'tv' && details.networks?.length > 0) {
+        const networkName = details.networks[0].name;
+        const targetProvider = customMappings[networkName.toLowerCase()] || cleanString(networkName);
+        if (usProviders?.flatrate) {
+            const matched = usProviders.flatrate.find(p => {
+                const pName = cleanString(p.provider_name);
+                return pName.includes(targetProvider) || targetProvider.includes(pName);
+            });
+            if (matched) return { path: matched.logo_path, isNetwork: false };
+        }
+    }
+
+    // 2. Pick best flatrate streaming provider
+    if (usProviders?.flatrate?.length > 0) {
+        const validProviders = usProviders.flatrate.filter(p => {
+            const pName = cleanString(p.provider_name);
+            return !((pName.includes('amazon') && pName.includes('channel')) ||
+                (pName.includes('roku') && pName.includes('premium')) ||
+                (pName.includes('apple') && pName.includes('channel')));
+        });
+
+        if (validProviders.length > 0) {
+            let best = null, bestIdx = Infinity;
+            for (const p of validProviders) {
+                const idx = topTiers.findIndex(t => cleanString(p.provider_name).includes(t));
+                if (idx !== -1 && idx < bestIdx) { bestIdx = idx; best = p; }
+            }
+            if (!best) {
+                best = validProviders.find(p => !cleanString(p.provider_name).includes('amazon')) || validProviders[0];
+            }
+            return { path: best.logo_path, isNetwork: false };
+        }
+    }
+
+    // 3. Fallback: raw network logo
+    if (tmdbType === 'tv' && details.networks?.length > 0) {
+        return { path: details.networks[0].logo_path, isNetwork: true };
+    }
+
+    return null;
+}
+
+/**
+ * Sample the average color of the bottom half of an image.
+ * Uses raw pixel data — avoids a full PNG encode/decode cycle.
+ * Returns { meanR, meanG, meanB, luminance }.
+ */
+async function sampleBottomHalf(imageBuffer, metadata) {
+    try {
+        const top = Math.floor(metadata.height / 2);
+        const height = metadata.height - top;
+
+        const { data, info } = await sharp(imageBuffer)
+            .extract({ left: 0, top, width: metadata.width, height })
+            .raw()
+            .toBuffer({ resolveWithObject: true });
+
+        const channels = info.channels; // 3 (RGB) or 4 (RGBA)
+        const pixelCount = info.width * info.height;
+        let sumR = 0, sumG = 0, sumB = 0;
+
+        for (let i = 0; i < data.length; i += channels) {
+            sumR += data[i];
+            sumG += data[i + 1];
+            sumB += data[i + 2];
+        }
+
+        const meanR = Math.round(sumR / pixelCount);
+        const meanG = Math.round(sumG / pixelCount);
+        const meanB = Math.round(sumB / pixelCount);
+        const luminance = (0.299 * meanR) + (0.587 * meanG) + (0.114 * meanB);
+        return { meanR, meanG, meanB, luminance };
+    } catch {
+        return { meanR: 26, meanG: 26, meanB: 26, luminance: 26 };
+    }
+}
+
+/**
+ * Estimate rendered text width given a font size.
+ */
+function estimateTextWidth(text, fontSize) {
+    let w = 0;
+    for (const char of text) {
+        if ("iIl1., -".includes(char)) w += fontSize * 0.25;
+        else if ("rftj".includes(char)) w += fontSize * 0.35;
+        else if ("WMwm@".includes(char)) w += fontSize * 0.85;
+        else if ("NQDOUCGRHKBAVXY".includes(char)) w += fontSize * 0.70;
+        else if ("PESZT".includes(char)) w += fontSize * 0.60;
+        else w += fontSize * 0.50;
+    }
+    return w;
+}
+
+/**
+ * Build the frosted-glass tag composite operations for a given image.
+ * The blur extraction and color sampling run in parallel.
+ *
+ * @param {Buffer} imageBuffer  - Source image buffer
+ * @param {object} metadata     - sharp metadata for imageBuffer
+ * @param {string} tagText      - Display string for the tag
+ * @param {number} heightRatio  - Tag height as fraction of image height (0.08 poster / 0.15 backdrop)
+ * @param {number} fontRatio    - Font size as fraction of tag height (0.60 poster / 0.75 backdrop)
+ * @returns {Promise<Array>}    - Array of sharp composite operation objects
+ */
+async function buildTagComposites(imageBuffer, metadata, tagText, heightRatio, fontRatio) {
+    const { width, height } = metadata;
+    const tagHeight = Math.round(height * heightRatio);
+    const fontSize = Math.round(tagHeight * fontRatio);
+    const tagWidth = Math.round(estimateTextWidth(tagText, fontSize) + fontSize * 1.8);
+    const startX = Math.round((width / 2) - (tagWidth / 2));
+    const startY = height - tagHeight;
+    const r = Math.round(tagHeight * 0.25);
+
+    const extractLeft = Math.max(0, startX);
+    const extractTop = Math.max(0, startY);
+    const extractWidth = Math.min(tagWidth, width - extractLeft);
+    const extractHeight = Math.min(tagHeight, height - extractTop);
+
+    // ── Run color sampling and region blur in parallel ───────────────────────
+    const [colorInfo, blurBuffer] = await Promise.all([
+        sampleBottomHalf(imageBuffer, metadata),
+        sharp(imageBuffer)
+            .extract({ left: extractLeft, top: extractTop, width: extractWidth, height: extractHeight })
+            .blur(15)
+            .png()
+            .toBuffer()
+            .catch(() => null)
+    ]);
+
+    const { meanR, meanG, meanB, luminance } = colorInfo;
+    const tagFillColor = `rgb(${meanR}, ${meanG}, ${meanB})`;
+    const textColor = luminance > 140 ? "#121212" : "#ffffff";
+    let tagFillOpacity = luminance > 140 ? "0.65" : "0.45";
+
+    const composites = [];
+    const fontStack = "'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif";
+
+    // ── Frosted blur region ──────────────────────────────────────────────────
+    if (blurBuffer) {
+        const localPath = `M 0,${extractHeight} L ${extractWidth},${extractHeight} L ${extractWidth},${r} Q ${extractWidth},0 ${extractWidth - r},0 L ${r},0 Q 0,0 0,${r} Z`;
+        const maskSvg = `<svg width="${extractWidth}" height="${extractHeight}"><path d="${localPath}" fill="white"/></svg>`;
+
+        const shapedBlur = await sharp(blurBuffer)
+            .composite([{ input: Buffer.from(maskSvg), blend: 'dest-in' }])
+            .png()
+            .toBuffer();
+        composites.push({ input: shapedBlur, top: extractTop, left: extractLeft });
+    } else {
+        tagFillOpacity = "0.85";
+    }
+
+    // ── Pill + text overlay ──────────────────────────────────────────────────
+    const pillPath = `M ${startX},${height} L ${startX + tagWidth},${height} L ${startX + tagWidth},${startY + r} Q ${startX + tagWidth},${startY} ${startX + tagWidth - r},${startY} L ${startX + r},${startY} Q ${startX},${startY} ${startX},${startY + r} Z`;
+    const tagSvg = `<svg width="${width}" height="${height}">
+        <path d="${pillPath}" fill="${tagFillColor}" fill-opacity="${tagFillOpacity}"/>
+        <text x="${width / 2}" y="${startY + (tagHeight / 2) + (fontSize * 0.35)}" text-anchor="middle"
+              font-family="${fontStack}" font-size="${fontSize}" fill="${textColor}" font-weight="bold">${tagText}</text>
+    </svg>`;
+    composites.push({ input: Buffer.from(tagSvg), top: 0, left: 0 });
+
+    return composites;
+}
+
+/**
+ * Fetch, resize, and optionally round-corner a provider logo.
+ * Returns a composite operation object, or null on failure.
+ *
+ * @param {string}  logoPath   - TMDB logo_path
+ * @param {boolean} isNetwork  - Skip rounding for raw network logos
+ * @param {number}  logoWidth  - Target pixel width
+ * @param {number}  topOffset  - Composite top position
+ * @param {number}  rightEdge  - Full image width (used to compute left position)
+ * @param {number}  rightPad   - Padding from right edge
+ */
+async function buildLogoComposite(logoPath, isNetwork, logoWidth, topOffset, rightEdge, rightPad) {
+    try {
+        const res = await fetch(`https://image.tmdb.org/t/p/w154${logoPath}`);
+        if (!res.ok) return null;
+
+        const buf = Buffer.from(await res.arrayBuffer());
+        let resized = await sharp(buf)
+            .resize({ width: logoWidth, withoutEnlargement: true })
+            .png()
+            .toBuffer();
+
+        const meta = await sharp(resized).metadata();
+
+        if (!isNetwork) {
+            const maskRadius = Math.round(logoWidth * 0.2);
+            const mask = Buffer.from(`<svg width="${meta.width}" height="${meta.height}">
+                <rect x="0" y="0" width="${meta.width}" height="${meta.height}"
+                      rx="${maskRadius}" ry="${maskRadius}" fill="white"/>
+            </svg>`);
+            resized = await sharp(resized)
+                .composite([{ input: mask, blend: 'dest-in' }])
+                .png()
+                .toBuffer();
+        }
+
+        return {
+            input: resized,
+            top: topOffset,
+            left: Math.round(rightEdge - meta.width - rightPad)
+        };
+    } catch (e) {
+        console.error("Provider logo error:", e);
+        return null;
+    }
+}
+
+/**
+ * Shared cache middleware + probabilistic cache cleanup.
+ * Returns true if the request was served from cache (caller should return early).
+ */
+function serveCached(cacheKey, res) {
+    const cached = imageCache.get(cacheKey);
+    if (cached && Date.now() < cached.expires) {
+        res.set("Content-Type", "image/png");
+        res.set("Cache-Control", "public, max-age=86400");
+        res.send(cached.buffer);
+        return true;
+    }
+    // Probabilistic cleanup on cache miss
+    if (Math.random() < 0.05) {
+        for (const [k, v] of imageCache.entries()) {
+            if (Date.now() > v.expires) imageCache.delete(k);
+        }
+    }
+    return false;
+}
+
+function cacheAndSend(cacheKey, buffer, res) {
+    imageCache.set(cacheKey, { buffer, expires: Date.now() + CACHE_TTL_MS });
+    res.set("Content-Type", "image/png");
+    res.set("Cache-Control", "public, max-age=86400");
+    res.send(buffer);
+}
+
+// ─── Catalog handler (unchanged logic) ───────────────────────────────────────
 
 builder.defineCatalogHandler(async (args) => {
     const { type, id, extra } = args;
@@ -137,7 +416,7 @@ builder.defineCatalogHandler(async (args) => {
                         }
                     }
                     return { earliestTheatrical, earliestDigital, earliestPhysical };
-                } catch (err) { return { earliestTheatrical: null, earliestDigital: null, earliestPhysical: null }; }
+                } catch { return { earliestTheatrical: null, earliestDigital: null, earliestPhysical: null }; }
             }));
 
             pageItems.forEach((item, index) => {
@@ -163,12 +442,8 @@ builder.defineCatalogHandler(async (args) => {
                     if (daysSincePhysical !== null && daysSincePhysical <= 14) {
                         item._tag = "out_on_bluray";
                     } else if (daysSinceDigital !== null && daysSinceDigital <= 14) {
-                        const hasPastTheatrical = item._earliestTheatrical && item._earliestTheatrical < item._earliestDigital;
-                        if (hasPastTheatrical) {
-                            item._tag = "just_added";
-                        } else {
-                            item._tag = "now_streaming";
-                        }
+                        item._tag = (item._earliestTheatrical && item._earliestTheatrical < item._earliestDigital)
+                            ? "just_added" : "now_streaming";
                     } else if (!item._earliestDigital || item._earliestDigital > TODAY) {
                         if (item._earliestDigital) {
                             const daysUntil = diffDays(item._earliestDigital, TODAY);
@@ -196,34 +471,31 @@ builder.defineCatalogHandler(async (args) => {
                         const res = await fetch(`https://api.themoviedb.org/3/tv/${show.id}?api_key=${TMDB_API_KEY}`);
                         const data = await res.json();
 
-                        // Intercept TMDB hiding multiple same-day episode drops
                         let nextEp = data.next_episode_to_air;
                         if (nextEp && nextEp.air_date) {
                             const nextAirDate = parseLocal(nextEp.air_date);
                             if (nextAirDate <= TODAY) {
                                 const currentSeason = data.seasons?.find(s => s.season_number === nextEp.season_number);
                                 const expectedCount = currentSeason?.episode_count || 0;
-
-                                // If it's not the finale, check if later episodes also air today
                                 if (expectedCount > 0 && nextEp.episode_number < expectedCount) {
                                     try {
                                         const seasonRes = await fetch(`https://api.themoviedb.org/3/tv/${show.id}/season/${nextEp.season_number}?api_key=${TMDB_API_KEY}`);
                                         const seasonData = await seasonRes.json();
                                         if (seasonData.episodes) {
-                                            const validEpisodes = seasonData.episodes.filter(ep => ep.air_date && parseLocal(ep.air_date) <= TODAY);
-                                            if (validEpisodes.length > 0) {
-                                                const latestToday = validEpisodes[validEpisodes.length - 1];
-                                                if (latestToday.episode_number > nextEp.episode_number) {
-                                                    data.next_episode_to_air = latestToday;
+                                            const validEps = seasonData.episodes.filter(ep => ep.air_date && parseLocal(ep.air_date) <= TODAY);
+                                            if (validEps.length > 0) {
+                                                const latest = validEps[validEps.length - 1];
+                                                if (latest.episode_number > nextEp.episode_number) {
+                                                    data.next_episode_to_air = latest;
                                                 }
                                             }
                                         }
-                                    } catch (seasonErr) { /* ignore */ }
+                                    } catch { /* ignore */ }
                                 }
                             }
                         }
                         return data;
-                    } catch (err) { return null; }
+                    } catch { return null; }
                 }));
 
                 pageItems.forEach((item, index) => {
@@ -235,36 +507,26 @@ builder.defineCatalogHandler(async (args) => {
 
                     if (nextEp && nextEp.air_date) {
                         const nextAirDate = parseLocal(nextEp.air_date);
-                        if (nextAirDate <= TODAY) {
-                            lastEp = nextEp;
-                            nextEp = null;
-                        }
+                        if (nextAirDate <= TODAY) { lastEp = nextEp; nextEp = null; }
                     }
 
                     let isFinale = false;
                     if (lastEp) {
                         const currentSeason = tvData.seasons?.find(s => s.season_number === lastEp.season_number);
                         const expectedCount = currentSeason?.episode_count || 0;
-
                         if (lastEp.episode_type) {
-                            isFinale = (lastEp.episode_type === "finale");
-                        } else {
-                            if (expectedCount > 0 && lastEp.episode_number >= expectedCount) {
-                                isFinale = true;
-                            } else if (!nextEp && lastEp.episode_number > 1) {
-                                if (expectedCount === 0 || lastEp.episode_number >= expectedCount) {
-                                    isFinale = true;
-                                }
-                            }
+                            isFinale = lastEp.episode_type === "finale";
+                        } else if (expectedCount > 0 && lastEp.episode_number >= expectedCount) {
+                            isFinale = true;
+                        } else if (!nextEp && lastEp.episode_number > 1) {
+                            if (expectedCount === 0 || lastEp.episode_number >= expectedCount) isFinale = true;
                         }
                     }
 
                     const firstAir = parseLocal(tvData.first_air_date);
-                    const lastAir = lastEp && lastEp.air_date ? parseLocal(lastEp.air_date) : parseLocal(tvData.last_air_date);
+                    const lastAir = lastEp?.air_date ? parseLocal(lastEp.air_date) : parseLocal(tvData.last_air_date);
 
-                    let itemTag = null;
-                    let futureDate = null;
-                    let isBrandNewSeries = false;
+                    let itemTag = null, futureDate = null, isBrandNewSeries = false;
 
                     if (firstAir && firstAir > TODAY) {
                         futureDate = firstAir;
@@ -276,46 +538,35 @@ builder.defineCatalogHandler(async (args) => {
                     if (futureDate) {
                         const daysUntil = diffDays(futureDate, TODAY);
                         if (daysUntil <= 14) {
-                            const formattedDate = formatFutureDate(futureDate);
-                            itemTag = `coming_date_${formattedDate.replace(' ', '_')}`;
+                            itemTag = `coming_date_${formatFutureDate(futureDate).replace(' ', '_')}`;
                         } else if (isBrandNewSeries) {
                             itemTag = "coming_soon";
                         }
                     }
 
-                    if (!itemTag) {
-                        if (nextEp && nextEp.air_date) {
-                            const nextAirDate = parseLocal(nextEp.air_date);
-                            if (nextAirDate > TODAY && diffDays(nextAirDate, TODAY) <= 5) {
-                                let isNextFinale = false;
-                                const nextSeason = tvData.seasons?.find(s => s.season_number === nextEp.season_number);
-                                const expectedCount = nextSeason?.episode_count || 0;
-
-                                if (nextEp.episode_type) {
-                                    isNextFinale = (nextEp.episode_type === "finale");
-                                } else {
-                                    if (expectedCount > 0 && nextEp.episode_number >= expectedCount) {
-                                        isNextFinale = true;
-                                    }
-                                }
-
-                                if (isNextFinale) {
-                                    const formattedDate = formatFutureDate(nextAirDate);
-                                    itemTag = `finale_date_${formattedDate.replace(' ', '_')}`;
-                                }
+                    if (!itemTag && nextEp?.air_date) {
+                        const nextAirDate = parseLocal(nextEp.air_date);
+                        if (nextAirDate > TODAY && diffDays(nextAirDate, TODAY) <= 5) {
+                            const nextSeason = tvData.seasons?.find(s => s.season_number === nextEp.season_number);
+                            const expectedCount = nextSeason?.episode_count || 0;
+                            let isNextFinale = nextEp.episode_type === "finale"
+                                || (expectedCount > 0 && nextEp.episode_number >= expectedCount);
+                            if (isNextFinale) {
+                                itemTag = `finale_date_${formatFutureDate(nextAirDate).replace(' ', '_')}`;
                             }
                         }
                     }
 
                     if (!itemTag) {
                         const latestSeason = tvData.seasons?.slice().reverse().find(s => s.season_number > 0);
-                        const seasonAir = (latestSeason && latestSeason.air_date) ? parseLocal(latestSeason.air_date) : null;
+                        const seasonAir = latestSeason?.air_date ? parseLocal(latestSeason.air_date) : null;
 
                         if (firstAir && firstAir <= TODAY && diffDays(TODAY, firstAir) <= 6) {
                             itemTag = "premiere";
                         } else if (firstAir && firstAir <= TODAY && diffDays(TODAY, firstAir) <= 13) {
                             itemTag = "new_series";
-                        } else if ((tvData.status === "Ended" || tvData.status === "Canceled") && tvData.number_of_seasons > 1 && lastAir && lastAir <= TODAY && diffDays(TODAY, lastAir) <= 30) {
+                        } else if ((tvData.status === "Ended" || tvData.status === "Canceled") &&
+                            tvData.number_of_seasons > 1 && lastAir && lastAir <= TODAY && diffDays(TODAY, lastAir) <= 30) {
                             itemTag = "final_season";
                         } else if (seasonAir && seasonAir <= TODAY && diffDays(TODAY, seasonAir) <= 13) {
                             itemTag = "new_season";
@@ -339,21 +590,17 @@ builder.defineCatalogHandler(async (args) => {
 
     const metas = finalItems.slice(0, 10).map((item, index) => {
         const rank = index + 1;
-
         let finalPosterUrl = item.poster_path ? `https://image.tmdb.org/t/p/w500${item.poster_path}` : null;
-        if (userConfig.ranked) {
-            finalPosterUrl = `${ADDON_URL}/proxy-image-poster/${type}/${item.id}/${rank}/${userConfig.posterLang}.png`;
+        if (userConfig.ranked || userConfig.tags || userConfig.logos) {
+            finalPosterUrl = `${ADDON_URL}/proxy-image-poster/${type}/${item.id}/${item._tag || 'none'}/${userConfig.ranked ? rank : 'none'}/${userConfig.posterLang}/${userConfig.logos ? '1' : '0'}.png`;
         }
 
         let itemGenres = item.genre_ids ? item.genre_ids.map(gId => genreMap[gId]).filter(Boolean) : [];
-
         if (userConfig.listLang === 'non-en' && item.original_language) {
             try {
                 const langName = new Intl.DisplayNames(['en'], { type: 'language' }).of(item.original_language);
-                if (langName) {
-                    itemGenres.unshift(langName);
-                }
-            } catch (e) {
+                if (langName) itemGenres.unshift(langName);
+            } catch {
                 itemGenres.unshift(item.original_language.toUpperCase());
             }
         }
@@ -372,478 +619,241 @@ builder.defineCatalogHandler(async (args) => {
     return { metas };
 });
 
-app.get(['/proxy-image-backdrop/:type/:id/:tag/:lang.png', '/proxy-image-backdrop/:type/:id/:tag/:lang/:logos.png'], async (req, res) => {
-    const cacheKey = req.originalUrl;
-    const cachedItem = imageCache.get(cacheKey);
-    if (cachedItem && Date.now() < cachedItem.expires) {
-        res.set("Content-Type", "image/png");
-        res.set("Cache-Control", "public, max-age=86400");
-        return res.send(cachedItem.buffer);
-    }
+// ─── Backdrop route ───────────────────────────────────────────────────────────
 
-    // On a cache miss, run a cleanup with a small chance to avoid performance hits.
-    if (Math.random() < 0.05) {
-        for (const [key, value] of imageCache.entries()) {
-            if (Date.now() > value.expires) {
-                imageCache.delete(key);
+app.get(
+    ['/proxy-image-backdrop/:type/:id/:tag/:lang.png',
+        '/proxy-image-backdrop/:type/:id/:tag/:lang/:logos.png'],
+    async (req, res) => {
+        if (serveCached(req.originalUrl, res)) return;
+
+        try {
+            const { type, id, tag, lang, logos } = req.params;
+            const tmdbType = type === 'series' ? 'tv' : 'movie';
+            const showLogos = logos === '1';
+            const tagText = parseTagText(tag);
+            const drawTag = !!tagText;
+
+            const fallbackLangs = ['en', 'null', 'ja', 'ko', 'es', 'fr', 'de', 'hi', 'it', 'pt', 'ru', 'zh', 'th', 'tr', 'pl', 'nl', 'sv', 'ar'];
+            const allowedLangs = [...new Set([lang, ...fallbackLangs])].map(l => l === 'null' ? null : l);
+
+            // ── 1. Fetch TMDB metadata ────────────────────────────────────────
+            const fetchUrl = showLogos
+                ? `https://api.themoviedb.org/3/${tmdbType}/${id}?api_key=${TMDB_API_KEY}&append_to_response=images,watch/providers`
+                : `https://api.themoviedb.org/3/${tmdbType}/${id}?api_key=${TMDB_API_KEY}&append_to_response=images`;
+
+            const details = await fetch(fetchUrl).then(r => r.json());
+            const images = details.images || details;
+            const originalLang = details.original_language;
+
+            if (originalLang && !allowedLangs.includes(originalLang)) allowedLangs.push(originalLang);
+            if (images.backdrops) {
+                images.backdrops = images.backdrops.filter(b => allowedLangs.includes(b.iso_639_1));
             }
+
+            const backdropLangToUse = lang === 'null' ? null : lang;
+            const backdrop = images.backdrops?.find(b => b.iso_639_1 === backdropLangToUse)
+                || (originalLang && images.backdrops?.find(b => b.iso_639_1 === originalLang))
+                || images.backdrops?.find(b => b.iso_639_1 === null)
+                || images.backdrops?.[0];
+
+            if (!backdrop?.file_path) {
+                return res.redirect(301, 'https://via.placeholder.com/1280x720.png?text=No+Background+Available');
+            }
+
+            // Resolve logo info (sync, no fetch yet)
+            const logoInfo = showLogos ? resolveProviderLogoInfo(tmdbType, details) : null;
+
+            // Fast path: nothing to draw → just redirect
+            if (!drawTag && !logoInfo) {
+                return res.redirect(301, `https://image.tmdb.org/t/p/original${backdrop.file_path}`);
+            }
+
+            // ── 2. Fetch backdrop image + provider logo in parallel ───────────
+            const [backdropBuffer, logoCompositeResult] = await Promise.all([
+                fetch(`https://image.tmdb.org/t/p/w1280${backdrop.file_path}`)
+                    .then(r => r.arrayBuffer())
+                    .then(ab => Buffer.from(ab)),
+                logoInfo
+                    ? (async () => { /* placeholder — computed after we know image dimensions */ return logoInfo; })()
+                    : Promise.resolve(null)
+            ]);
+
+            const backdropImage = sharp(backdropBuffer);
+            const metadata = await backdropImage.metadata();
+            const { width } = metadata;
+
+            // ── 3. Build composites (tag ops + color sample run in parallel inside) ──
+            const [tagComposites, logoComposite] = await Promise.all([
+                drawTag
+                    ? buildTagComposites(backdropBuffer, metadata, tagText, 0.15, 0.75)
+                    : Promise.resolve([]),
+                logoInfo
+                    ? buildLogoComposite(
+                        logoInfo.path,
+                        logoInfo.isNetwork,
+                        Math.round(width * 0.10),
+                        Math.round(metadata.height * 0.04),
+                        width,
+                        Math.round(metadata.height * 0.04)
+                    )
+                    : Promise.resolve(null)
+            ]);
+
+            const compositeOperations = [
+                ...tagComposites,
+                ...(logoComposite ? [logoComposite] : [])
+            ];
+
+            const finalImageBuffer = await backdropImage
+                .composite(compositeOperations)
+                .png()
+                .toBuffer();
+
+            cacheAndSend(req.originalUrl, finalImageBuffer, res);
+        } catch (error) {
+            console.error("Backdrop generation error:", error);
+            res.status(500).send("Error generating image");
         }
     }
+);
 
-    try {
-        const { type, id, tag, lang, logos } = req.params;
-        const tmdbType = type === 'series' ? 'tv' : 'movie';
-        const showLogos = logos === '1';
+// ─── Poster route ─────────────────────────────────────────────────────────────
 
-        const fallbackLangs = ['en', 'null', 'ja', 'ko', 'es', 'fr', 'de', 'hi', 'it', 'pt', 'ru', 'zh', 'th', 'tr', 'pl', 'nl', 'sv', 'ar'];
-        const imgLangs = [...new Set([lang, ...fallbackLangs])].join(',');
-        let fetchUrl = `https://api.themoviedb.org/3/${tmdbType}/${id}?api_key=${TMDB_API_KEY}&append_to_response=images&include_image_language=${imgLangs}`;
-        if (showLogos) {
-            fetchUrl = `https://api.themoviedb.org/3/${tmdbType}/${id}?api_key=${TMDB_API_KEY}&append_to_response=images,watch/providers&include_image_language=${imgLangs}`;
-        }
+app.get(
+    ['/proxy-image-poster/:type/:id/:tag/:rank/:lang.png',
+        '/proxy-image-poster/:type/:id/:tag/:rank/:lang/:logos.png'],
+    async (req, res) => {
+        if (serveCached(req.originalUrl, res)) return;
 
-        const response = await fetch(fetchUrl);
-        const details = await response.json();
-        const images = details.images || details;
-        const originalLang = details.original_language;
+        try {
+            const { type, id, tag, rank, lang, logos } = req.params;
+            const tmdbType = type === 'series' ? 'tv' : 'movie';
+            const showLogos = logos === '1';
+            const tagText = parseTagText(tag);
+            const drawTag = !!tagText;
+            const drawRank = rank && rank !== 'none';
 
-        const backdropLangToUse = lang === 'null' ? null : lang;
+            const fallbackLangs = ['en', 'null', 'ja', 'ko', 'es', 'fr', 'de', 'hi', 'it', 'pt', 'ru', 'zh', 'th', 'tr', 'pl', 'nl', 'sv', 'ar'];
+            const allowedLangs = [...new Set([lang, ...fallbackLangs])].map(l => l === 'null' ? null : l);
 
-        const backdrop = images.backdrops?.find(b => b.iso_639_1 === backdropLangToUse)
-            || (originalLang && images.backdrops?.find(b => b.iso_639_1 === originalLang))
-            || images.backdrops?.find(b => b.iso_639_1 === null)
-            || images.backdrops?.[0];
+            // ── 1. Fetch TMDB metadata ────────────────────────────────────────
+            const fetchUrl = showLogos
+                ? `https://api.themoviedb.org/3/${tmdbType}/${id}?api_key=${TMDB_API_KEY}&append_to_response=images,watch/providers`
+                : `https://api.themoviedb.org/3/${tmdbType}/${id}?api_key=${TMDB_API_KEY}&append_to_response=images`;
 
-        if (!backdrop || !backdrop.file_path) {
-            return res.redirect(301, 'https://via.placeholder.com/1280x720.png?text=No+Background+Available');
-        }
+            const details = await fetch(fetchUrl).then(r => r.json());
+            const images = details.images || details;
+            const originalLang = details.original_language;
 
-        let tagText = tagDisplayNameMap[tag];
-
-        if (tag && tag.startsWith('coming_date_')) {
-            const dateParts = tag.replace('coming_date_', '').split('_');
-            if (dateParts.length === 2) {
-                tagText = `Coming ${dateParts[0]} ${dateParts[1]}`;
-            }
-        } else if (tag && tag.startsWith('finale_date_')) {
-            const dateParts = tag.replace('finale_date_', '').split('_');
-            if (dateParts.length === 2) {
-                tagText = `Finale ${dateParts[0]} ${dateParts[1]}`;
-            }
-        }
-
-        let providerLogoPath = null;
-        let isNetworkLogo = false;
-        let usProviders = null;
-
-        if (showLogos) {
-            if (details['watch/providers'] && details['watch/providers'].results) {
-                const providers = details['watch/providers'].results;
-                usProviders = providers.US || Object.values(providers)[0];
+            if (originalLang && !allowedLangs.includes(originalLang)) allowedLangs.push(originalLang);
+            if (images.posters) {
+                images.posters = images.posters.filter(p => allowedLangs.includes(p.iso_639_1));
             }
 
-            const cleanString = (str) => str ? str.toLowerCase().replace(/\+/g, 'plus').replace(/\s+/g, '') : '';
+            const posterLangToUse = lang === 'null' ? null : lang;
+            const poster = images.posters?.find(p => p.iso_639_1 === posterLangToUse)
+                || (originalLang && images.posters?.find(p => p.iso_639_1 === originalLang))
+                || images.posters?.find(p => p.iso_639_1 === null)
+                || images.posters?.find(p => p.iso_639_1 === 'en')
+                || images.posters?.[0];
 
-            if (tmdbType === 'tv' && details.networks && details.networks.length > 0) {
-                const networkName = details.networks[0].name;
-
-                const customMappings = {
-                    "hbo": "max",
-                    "cbs": "paramount",
-                    "nbc": "peacock",
-                    "fx": "hulu",
-                    "abc": "hulu",
-                    "fox": "hulu",
-                    "amc": "amc",
-                    "showtime": "paramount",
-                    "the cw": "max",
-                    "bbc": "britbox"
-                };
-
-                const normalizedNetwork = networkName.toLowerCase();
-                let targetProvider = customMappings[normalizedNetwork] || cleanString(networkName);
-
-                if (usProviders && usProviders.flatrate) {
-                    const matchedProvider = usProviders.flatrate.find(p => {
-                        const pName = cleanString(p.provider_name);
-                        return pName.includes(targetProvider) || targetProvider.includes(pName);
-                    });
-                    if (matchedProvider) {
-                        providerLogoPath = matchedProvider.logo_path;
-                    }
-                }
+            if (!poster?.file_path) {
+                return res.redirect(301, 'https://via.placeholder.com/500x750.png?text=Poster+Unavailable');
             }
 
-            if (!providerLogoPath && usProviders && usProviders.flatrate && usProviders.flatrate.length > 0) {
-                // Filter out undesired add-on channel providers
-                const validProviders = usProviders.flatrate.filter(p => {
-                    const pName = cleanString(p.provider_name);
-                    const isAmazonChannel = pName.includes('amazon') && pName.includes('channel');
-                    const isRokuPremium = pName.includes('roku') && pName.includes('premium');
-                    const isAppleChannel = pName.includes('apple') && pName.includes('channel');
-                    return !isAmazonChannel && !isRokuPremium && !isAppleChannel;
-                });
+            // Resolve logo info (sync, no fetch yet)
+            const logoInfo = showLogos ? resolveProviderLogoInfo(tmdbType, details) : null;
 
-                if (validProviders.length > 0) {
-                    // Prioritize other specific networks over Amazon, as Amazon often aggregates them
-                    const topTiers = ['netflix', 'max', 'disney', 'hulu', 'apple', 'paramount', 'peacock', 'crunchyroll', 'mgm', 'starz', 'showtime', 'amc', 'amazon'];
-
-                    let bestProvider = null;
-                    let bestPriority = Infinity;
-
-                    for (const p of validProviders) {
-                        const pName = cleanString(p.provider_name);
-                        const priorityIndex = topTiers.findIndex(t => pName.includes(t));
-
-                        if (priorityIndex !== -1 && priorityIndex < bestPriority) {
-                            bestPriority = priorityIndex;
-                            bestProvider = p;
-                        }
-                    }
-
-                    // If no top tier matched, pick the first one that isn't Amazon (if possible)
-                    if (!bestProvider) {
-                        bestProvider = validProviders.find(p => !cleanString(p.provider_name).includes('amazon')) || validProviders[0];
-                    }
-
-                    providerLogoPath = bestProvider.logo_path;
-                }
+            // Fast path: nothing to draw → just redirect
+            if (!drawTag && !drawRank && !logoInfo) {
+                return res.redirect(301, `https://image.tmdb.org/t/p/w500${poster.file_path}`);
             }
 
-            if (!providerLogoPath && tmdbType === 'tv' && details.networks && details.networks.length > 0) {
-                providerLogoPath = details.networks[0].logo_path;
-                isNetworkLogo = true;
-            }
-        }
+            // ── 2. Fetch poster image (logo fetch is deferred until we have width) ──
+            const posterBuffer = await fetch(`https://image.tmdb.org/t/p/w500${poster.file_path}`)
+                .then(r => r.arrayBuffer())
+                .then(ab => Buffer.from(ab));
 
-        const drawTag = tag !== 'none' && !!tagText;
+            const posterImage = sharp(posterBuffer);
+            const metadata = await posterImage.metadata();
+            const { width } = metadata;
 
-        if (!drawTag && !providerLogoPath) {
-            return res.redirect(301, `https://image.tmdb.org/t/p/original${backdrop.file_path}`);
-        }
+            // ── 3. Build rank SVG (sync, zero I/O) ───────────────────────────
+            let rankComposite = null;
+            if (drawRank) {
+                const fontSize = Math.round(width * 0.30);
+                const paddingTop = Math.round(width * 0.08);
+                const paddingLeft = Math.round(width * 0.08);
+                const fontStack = "'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif";
 
-        const backdropResponse = await fetch(`https://image.tmdb.org/t/p/w1280${backdrop.file_path}`);
-        const backdropBuffer = Buffer.from(await backdropResponse.arrayBuffer());
-
-        const backdropImage = sharp(backdropBuffer);
-        const metadata = await backdropImage.metadata();
-        const width = metadata.width;
-
-        let compositeOperations = [];
-
-        if (drawTag) {
-            const tagHeight = Math.round(metadata.height * 0.15);
-            const fontSize = Math.round(tagHeight * 0.75);
-
-            let estimatedTextWidth = 0;
-            for (let i = 0; i < tagText.length; i++) {
-                const char = tagText[i];
-                if ("iIl1., -".includes(char)) {
-                    estimatedTextWidth += fontSize * 0.25;
-                } else if ("rftj".includes(char)) {
-                    estimatedTextWidth += fontSize * 0.35;
-                } else if ("WMwm@".includes(char)) {
-                    estimatedTextWidth += fontSize * 0.85;
-                } else if ("NQDOUCGRHKBAVXY".includes(char)) {
-                    estimatedTextWidth += fontSize * 0.70;
-                } else if ("PESZT".includes(char)) {
-                    estimatedTextWidth += fontSize * 0.60;
-                } else {
-                    estimatedTextWidth += fontSize * 0.50;
-                }
-            }
-
-            const horizontalPadding = fontSize * 1.8;
-            const tagWidth = Math.round(estimatedTextWidth + horizontalPadding);
-
-            const startX = Math.round((width / 2) - (tagWidth / 2));
-            const startY = metadata.height - tagHeight;
-            const r = Math.round(tagHeight * 0.25);
-
-            const extractLeft = Math.max(0, startX);
-            const extractTop = Math.max(0, startY);
-            const extractWidth = Math.min(tagWidth, width - extractLeft);
-            const extractHeight = Math.min(tagHeight, metadata.height - extractTop);
-
-            let tagFillColor = "#1a1a1a";
-            let textColor = "white";
-            let bottomHalfLuminance = 0;
-
-            try {
-                // --- NEW: Isolate the bottom 50% of the image for sampling ---
-                const bottomHalfTop = Math.floor(metadata.height / 2);
-                const bottomHalfHeight = metadata.height - bottomHalfTop;
-
-                const bottomHalfBuffer = await sharp(backdropBuffer)
-                    .extract({ left: 0, top: bottomHalfTop, width: metadata.width, height: bottomHalfHeight })
-                    .toBuffer();
-
-                const stats = await sharp(bottomHalfBuffer).stats();
-
-                if (stats.channels.length >= 3) {
-                    const meanR = Math.round(stats.channels[0].mean);
-                    const meanG = Math.round(stats.channels[1].mean);
-                    const meanB = Math.round(stats.channels[2].mean);
-
-                    tagFillColor = `rgb(${meanR}, ${meanG}, ${meanB})`;
-                    bottomHalfLuminance = (0.299 * meanR) + (0.587 * meanG) + (0.114 * meanB);
-
-                } else if (stats.channels.length > 0) {
-                    const meanVal = Math.round(stats.channels[0].mean);
-                    tagFillColor = `rgb(${meanVal}, ${meanVal}, ${meanVal})`;
-                    bottomHalfLuminance = meanVal;
-                }
-
-                // Adjusted threshold slightly to account for the larger sample area
-                if (bottomHalfLuminance > 140) {
-                    textColor = "#121212";
-                } else {
-                    textColor = "#ffffff";
-                }
-            } catch (statsErr) {
-                console.error("Thematic bottom-half color extraction failed, using defaults:", statsErr.message);
-            }
-
-            const pathD = `
-                M ${startX},${metadata.height} 
-                L ${startX + tagWidth},${metadata.height} 
-                L ${startX + tagWidth},${startY + r}
-                Q ${startX + tagWidth},${startY} ${startX + tagWidth - r},${startY}
-                L ${startX + r},${startY} 
-                Q ${startX},${startY} ${startX},${startY + r} 
-                Z
-            `;
-
-            let tagFillOpacity = bottomHalfLuminance > 140 ? "0.65" : "0.45";
-
-            try {
-                // The physical blur still happens ONLY on the exact localized cutout!
-                const blurredRect = await sharp(backdropBuffer)
-                    .extract({ left: extractLeft, top: extractTop, width: extractWidth, height: extractHeight })
-                    .blur(15)
-                    .png()
-                    .toBuffer();
-
-                const localPathD = `
-                    M 0,${extractHeight} 
-                    L ${extractWidth},${extractHeight} 
-                    L ${extractWidth},${r}
-                    Q ${extractWidth},0 ${extractWidth - r},0
-                    L ${r},0 
-                    Q 0,0 0,${r} 
-                    Z
-                `;
-                const localMaskSvg = `
-                <svg width="${extractWidth}" height="${extractHeight}">
-                    <path d="${localPathD}" fill="white" />
+                const rankSvg = `<svg width="${width}" height="${metadata.height}">
+                    <defs>
+                        <linearGradient id="rankGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%"   style="stop-color:#ffffff;stop-opacity:1"/>
+                            <stop offset="60%"  style="stop-color:#c0c0c0;stop-opacity:1"/>
+                            <stop offset="100%" style="stop-color:#808080;stop-opacity:1"/>
+                        </linearGradient>
+                        <filter id="rankShadow" x="-10%" y="-10%" width="120%" height="120%">
+                            <feGaussianBlur in="SourceAlpha" stdDeviation="3"/>
+                            <feOffset dx="3" dy="3" result="offsetblur"/>
+                            <feFlood flood-color="black" flood-opacity="0.9"/>
+                            <feComposite in2="offsetblur" operator="in"/>
+                            <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
+                        </filter>
+                        <radialGradient id="shimmerGradient" cx="0%" cy="0%" r="100%" fx="0%" fy="0%">
+                            <stop offset="0%"   style="stop-color:black;stop-opacity:0.6"/>
+                            <stop offset="40%"  style="stop-color:black;stop-opacity:0.3"/>
+                            <stop offset="100%" style="stop-color:black;stop-opacity:0"/>
+                        </radialGradient>
+                    </defs>
+                    <rect x="0" y="0" width="${width * 0.6}" height="${fontSize * 2}" fill="url(#shimmerGradient)"/>
+                    <text x="${paddingLeft}" y="${paddingTop + fontSize / 1.3}" text-anchor="start"
+                          font-family="${fontStack}" font-size="${fontSize}"
+                          fill="url(#rankGradient)" fill-opacity="0.80" font-weight="bold"
+                          filter="url(#rankShadow)">${rank}</text>
                 </svg>`;
 
-                const shapedBlurredBox = await sharp(blurredRect)
-                    .composite([{ input: Buffer.from(localMaskSvg), blend: 'dest-in' }])
-                    .png()
-                    .toBuffer();
-
-                compositeOperations.push({ input: shapedBlurredBox, top: extractTop, left: extractLeft });
-            } catch (blurErr) {
-                console.error("Frosted blur pipeline failed:", blurErr.message);
-                tagFillOpacity = "0.85";
+                rankComposite = { input: Buffer.from(rankSvg), top: 0, left: 0 };
             }
 
-            const fontStack = "'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif";
+            // ── 4. Tag composites + logo fetch run in parallel ────────────────
+            const [tagComposites, logoComposite] = await Promise.all([
+                drawTag
+                    ? buildTagComposites(posterBuffer, metadata, tagText, 0.08, 0.60)
+                    : Promise.resolve([]),
+                logoInfo
+                    ? buildLogoComposite(
+                        logoInfo.path,
+                        logoInfo.isNetwork,
+                        Math.round(width * 0.15),
+                        Math.round(width * 0.04),
+                        width,
+                        Math.round(width * 0.04)
+                    )
+                    : Promise.resolve(null)
+            ]);
 
-            const svgTag = `
-            <svg width="${width}" height="${metadata.height}">
-                <path d="${pathD}" fill="${tagFillColor}" fill-opacity="${tagFillOpacity}"/>
-                <text x="${width / 2}" y="${startY + (tagHeight / 2) + (fontSize * 0.35)}" text-anchor="middle" font-family="${fontStack}" font-size="${fontSize}" fill="${textColor}" font-weight="bold">${tagText}</text>
-            </svg>
-            `;
+            const compositeOperations = [
+                ...(rankComposite ? [rankComposite] : []),
+                ...tagComposites,
+                ...(logoComposite ? [logoComposite] : [])
+            ];
 
-            compositeOperations.push({ input: Buffer.from(svgTag), top: 0, left: 0 });
-        }
+            const finalImageBuffer = await posterImage
+                .composite(compositeOperations)
+                .png()
+                .toBuffer();
 
-        if (providerLogoPath) {
-            try {
-                const logoRes = await fetch(`https://image.tmdb.org/t/p/w154${providerLogoPath}`);
-                if (logoRes.ok) {
-                    const logoBuf = Buffer.from(await logoRes.arrayBuffer());
-                    const logoWidth = Math.round(width * 0.10); // 10% of backdrop width
-                    const resizedLogo = await sharp(logoBuf)
-                        .resize({ width: logoWidth, withoutEnlargement: true })
-                        .png()
-                        .toBuffer();
-
-                    const resizedMeta = await sharp(resizedLogo).metadata();
-                    let finalLogo = resizedLogo;
-
-                    if (!isNetworkLogo) {
-                        const maskRadius = Math.round(logoWidth * 0.2);
-                        const roundedMask = Buffer.from(`
-                            <svg width="${resizedMeta.width}" height="${resizedMeta.height}">
-                                <rect x="0" y="0" width="${resizedMeta.width}" height="${resizedMeta.height}" rx="${maskRadius}" ry="${maskRadius}" fill="white"/>
-                            </svg>
-                        `);
-
-                        finalLogo = await sharp(resizedLogo)
-                            .composite([{ input: roundedMask, blend: 'dest-in' }])
-                            .png()
-                            .toBuffer();
-                    }
-
-                    compositeOperations.push({
-                        input: finalLogo,
-                        top: Math.round(metadata.height * 0.04),
-                        left: Math.round(width - resizedMeta.width - metadata.height * 0.04)
-                    });
-                }
-            } catch (e) { console.error("Provider logo error:", e); }
-        }
-
-        const finalImageBuffer = await backdropImage
-            .composite(compositeOperations)
-            .png()
-            .toBuffer();
-
-        // Add the newly generated image to the cache
-        imageCache.set(cacheKey, {
-            buffer: finalImageBuffer,
-            expires: Date.now() + CACHE_TTL_MS
-        });
-
-        res.set("Content-Type", "image/png");
-        res.set("Cache-Control", "public, max-age=86400");
-        res.send(finalImageBuffer);
-    } catch (error) {
-        console.error("Backdrop generation error:", error);
-        res.status(500).send("Error generating image");
-    }
-});
-
-app.get('/proxy-image-poster/:type/:id/:rank/:lang.png', async (req, res) => {
-    const cacheKey = req.originalUrl;
-    const cachedItem = imageCache.get(cacheKey);
-    if (cachedItem && Date.now() < cachedItem.expires) {
-        res.set("Content-Type", "image/png");
-        res.set("Cache-Control", "public, max-age=86400");
-        return res.send(cachedItem.buffer);
-    }
-
-    // On a cache miss, run a cleanup with a small chance to avoid performance hits.
-    if (Math.random() < 0.05) {
-        for (const [key, value] of imageCache.entries()) {
-            if (Date.now() > value.expires) {
-                imageCache.delete(key);
-            }
+            cacheAndSend(req.originalUrl, finalImageBuffer, res);
+        } catch (error) {
+            console.error("Poster generation error:", error);
+            res.status(500).send("Error generating image");
         }
     }
+);
 
-    try {
-        const { type, id, rank, lang } = req.params;
-        const tmdbType = type === 'series' ? 'tv' : 'movie';
-
-        const fallbackLangs = ['en', 'null', 'ja', 'ko', 'es', 'fr', 'de', 'hi', 'it', 'pt', 'ru', 'zh', 'th', 'tr', 'pl', 'nl', 'sv', 'ar'];
-        const imgLangs = [...new Set([lang, ...fallbackLangs])].join(',');
-        const response = await fetch(`https://api.themoviedb.org/3/${tmdbType}/${id}?api_key=${TMDB_API_KEY}&append_to_response=images&include_image_language=${imgLangs}`);
-        const details = await response.json();
-        const images = details.images || details;
-        const originalLang = details.original_language;
-
-        const posterLangToUse = lang === 'null' ? null : lang;
-
-        const poster = images.posters?.find(p => p.iso_639_1 === posterLangToUse)
-            || (originalLang && images.posters?.find(p => p.iso_639_1 === originalLang))
-            || images.posters?.find(p => p.iso_639_1 === null)
-            || images.posters?.find(p => p.iso_639_1 === 'en')
-            || images.posters?.[0];
-
-        if (!poster || !poster.file_path) {
-            return res.redirect(301, 'https://via.placeholder.com/500x750.png?text=Poster+Unavailable');
-        }
-
-        const posterResponse = await fetch(`https://image.tmdb.org/t/p/w500${poster.file_path}`);
-        const posterBuffer = Buffer.from(await posterResponse.arrayBuffer());
-
-        const posterImage = sharp(posterBuffer);
-        const metadata = await posterImage.metadata();
-        const width = metadata.width;
-
-        const fontSize = Math.round(width * 0.30);
-        const paddingTop = Math.round(width * 0.08);
-        const paddingLeft = Math.round(width * 0.08);
-
-        const fontStack = "'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif";
-
-        const fontStyle = `
-        <style>
-            @font-face {
-                font-family: 'SF Pro Display';
-                src: local('SF Pro Display Bold'), local('SFProDisplay-Bold');
-                font-weight: bold;
-                font-style: normal;
-            }
-        </style>
-        `;
-
-        const gradientDef = `
-        <defs>
-            <linearGradient id="rankGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" style="stop-color:#ffffff;stop-opacity:1" /> 
-                <stop offset="60%" style="stop-color:#c0c0c0;stop-opacity:1" /> 
-                <stop offset="100%" style="stop-color:#808080;stop-opacity:1" /> 
-            </linearGradient>
-            
-            <filter id="rankShadow" x="-10%" y="-10%" width="120%" height="120%">
-                <feGaussianBlur in="SourceAlpha" stdDeviation="3"/> 
-                <feOffset dx="3" dy="3" result="offsetblur"/>
-                <feFlood flood-color="black" flood-opacity="0.9"/> 
-                <feComposite in2="offsetblur" operator="in"/>
-                <feMerge>
-                    <feMergeNode/>
-                    <feMergeNode in="SourceGraphic"/>
-                </feMerge>
-            </filter>
-            
-            <radialGradient id="shimmerGradient" cx="0%" cy="0%" r="100%" fx="0%" fy="0%">
-                <stop offset="0%" style="stop-color:black;stop-opacity:0.6" /> 
-                <stop offset="40%" style="stop-color:black;stop-opacity:0.3" /> 
-                <stop offset="100%" style="stop-color:black;stop-opacity:0" /> 
-            </radialGradient>
-        </defs>
-        `;
-
-        const svgTag = `
-        <svg width="${width}" height="${metadata.height}">
-            ${fontStyle}
-            ${gradientDef}
-            <rect x="0" y="0" width="${width * 0.6}" height="${fontSize * 2}" fill="url(#shimmerGradient)"/>
-            <text x="${paddingLeft}" y="${paddingTop + fontSize / 1.3}" text-anchor="start" font-family="${fontStack}" font-size="${fontSize}" fill="url(#rankGradient)" fill-opacity="0.80" font-weight="bold" filter="url(#rankShadow)">${rank}</text>
-        </svg>
-        `;
-
-        const finalImageBuffer = await posterImage
-            .composite([
-                {
-                    input: Buffer.from(svgTag),
-                    top: 0,
-                    left: 0
-                }
-            ])
-            .png()
-            .toBuffer();
-
-        // Add the newly generated image to the cache
-        imageCache.set(cacheKey, {
-            buffer: finalImageBuffer,
-            expires: Date.now() + CACHE_TTL_MS
-        });
-
-        res.set("Content-Type", "image/png");
-        res.set("Cache-Control", "public, max-age=86400");
-        res.send(finalImageBuffer);
-    } catch (error) {
-        console.error("Poster generation error:", error);
-        res.status(500).send("Error generating image");
-    }
-});
+// ─── Config UI ────────────────────────────────────────────────────────────────
 
 const configUI = `<!DOCTYPE html>
 <html>
@@ -896,8 +906,8 @@ const configUI = `<!DOCTYPE html>
     <div class="wrapper">
         <div class="container">
             <h2>TMDB Top Today</h2>
-            <label class="form-group checkbox-group" for="tags"><input type="checkbox" id="tags" checked onchange="updateLink()"><span>Enable Landscape Poster Tags</span></label>
-            <label class="form-group checkbox-group" for="logos"><input type="checkbox" id="logos" onchange="updateLink()"><span>Enable Landscape Streaming Logos</span></label>
+            <label class="form-group checkbox-group" for="tags"><input type="checkbox" id="tags" checked onchange="updateLink()"><span>Enable Poster Tags</span></label>
+            <label class="form-group checkbox-group" for="logos"><input type="checkbox" id="logos" onchange="updateLink()"><span>Enable Streaming Logos</span></label>
             <label class="form-group checkbox-group" for="ranked"><input type="checkbox" id="ranked" checked onchange="updateLink()"><span>Enable Portrait Ranked Posters</span></label>
             <label class="form-group checkbox-group" for="digitalOnly"><input type="checkbox" id="digitalOnly" checked onchange="updateLink()"><span>Filter Movies Not Released Digitally</span></label>
             <div class="form-group">
@@ -1051,6 +1061,8 @@ const configUI = `<!DOCTYPE html>
 </body>
 </html>`;
 
+// ─── Route plumbing (unchanged) ───────────────────────────────────────────────
+
 const parseConfig = (configStr) => {
     const configObj = {};
     if (configStr) {
@@ -1069,37 +1081,33 @@ app.get('/configure', (req, res) => res.send(configUI));
 app.get('/manifest.json', (req, res) => res.json(addonInterface.manifest));
 app.get('/:config/manifest.json', (req, res) => {
     const configuredManifest = JSON.parse(JSON.stringify(addonInterface.manifest));
-    if (configuredManifest.behaviorHints) {
-        configuredManifest.behaviorHints.configurationRequired = false;
-    }
+    if (configuredManifest.behaviorHints) configuredManifest.behaviorHints.configurationRequired = false;
     res.json(configuredManifest);
 });
 
 app.get('/catalog/:type/:id.json', async (req, res) => {
     try {
         res.json(await addonInterface.get('catalog', req.params.type, req.params.id, { config: {} }));
-    } catch (err) { res.status(500).json({ err: "Internal Server Error" }); }
+    } catch { res.status(500).json({ err: "Internal Server Error" }); }
 });
 
 app.get('/catalog/:type/:id/:extra.json', async (req, res) => {
     try {
         res.json(await addonInterface.get('catalog', req.params.type, req.params.id, { config: {} }));
-    } catch (err) { res.status(500).json({ err: "Internal Server Error" }); }
+    } catch { res.status(500).json({ err: "Internal Server Error" }); }
 });
 
 app.get('/:config/catalog/:type/:id.json', async (req, res) => {
     try {
         res.json(await addonInterface.get('catalog', req.params.type, req.params.id, { config: parseConfig(req.params.config) }));
-    } catch (err) { res.status(500).json({ err: "Internal Server Error" }); }
+    } catch { res.status(500).json({ err: "Internal Server Error" }); }
 });
 
 app.get('/:config/catalog/:type/:id/:extra.json', async (req, res) => {
     try {
         res.json(await addonInterface.get('catalog', req.params.type, req.params.id, { config: parseConfig(req.params.config) }));
-    } catch (err) { res.status(500).json({ err: "Internal Server Error" }); }
+    } catch { res.status(500).json({ err: "Internal Server Error" }); }
 });
 
 const PORT = process.env.PORT || 7000;
-app.listen(PORT, () => {
-    console.log(`Addon active on port ${PORT}`);
-});
+app.listen(PORT, () => console.log(`Addon active on port ${PORT}`));
