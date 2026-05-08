@@ -117,12 +117,20 @@ function resolveProviderLogoInfo(tmdbType, details) {
         usProviders = providers.US || Object.values(providers)[0];
     }
 
+    // Pre-filter flatrate providers to exclude channel/store-within-a-store versions
+    const validFlatrate = (usProviders?.flatrate || []).filter(p => {
+        const pName = cleanString(p.provider_name);
+        return !((pName.includes('amazon') && pName.includes('channel')) ||
+            (pName.includes('roku') && pName.includes('premium')) ||
+            (pName.includes('apple') && pName.includes('channel')));
+    });
+
     // 1. Match TV network → streaming provider
     if (tmdbType === 'tv' && details.networks?.length > 0) {
         const networkName = details.networks[0].name;
         const targetProvider = customMappings[networkName.toLowerCase()] || cleanString(networkName);
-        if (usProviders?.flatrate) {
-            const matched = usProviders.flatrate.find(p => {
+        if (validFlatrate.length > 0) {
+            const matched = validFlatrate.find(p => {
                 const pName = cleanString(p.provider_name);
                 return pName.includes(targetProvider) || targetProvider.includes(pName);
             });
@@ -131,25 +139,16 @@ function resolveProviderLogoInfo(tmdbType, details) {
     }
 
     // 2. Pick best flatrate streaming provider
-    if (usProviders?.flatrate?.length > 0) {
-        const validProviders = usProviders.flatrate.filter(p => {
-            const pName = cleanString(p.provider_name);
-            return !((pName.includes('amazon') && pName.includes('channel')) ||
-                (pName.includes('roku') && pName.includes('premium')) ||
-                (pName.includes('apple') && pName.includes('channel')));
-        });
-
-        if (validProviders.length > 0) {
-            let best = null, bestIdx = Infinity;
-            for (const p of validProviders) {
-                const idx = topTiers.findIndex(t => cleanString(p.provider_name).includes(t));
-                if (idx !== -1 && idx < bestIdx) { bestIdx = idx; best = p; }
-            }
-            if (!best) {
-                best = validProviders.find(p => !cleanString(p.provider_name).includes('amazon')) || validProviders[0];
-            }
-            return { path: best.logo_path, isNetwork: false };
+    if (validFlatrate.length > 0) {
+        let best = null, bestIdx = Infinity;
+        for (const p of validFlatrate) {
+            const idx = topTiers.findIndex(t => cleanString(p.provider_name).includes(t));
+            if (idx !== -1 && idx < bestIdx) { bestIdx = idx; best = p; }
         }
+        if (!best) {
+            best = validFlatrate.find(p => !cleanString(p.provider_name).includes('amazon')) || validFlatrate[0];
+        }
+        return { path: best.logo_path, isNetwork: false };
     }
 
     // 3. Fallback: raw network logo
