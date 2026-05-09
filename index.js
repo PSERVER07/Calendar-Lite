@@ -1,6 +1,9 @@
 const express = require("express");
 const { addonBuilder } = require("stremio-addon-sdk");
 const sharp = require("sharp");
+const fs = require("fs");
+const path = require("path");
+const crypto = require("crypto");
 
 const app = express();
 app.use((req, res, next) => {
@@ -13,14 +16,45 @@ const TMDB_API_KEY = process.env.TMDB_API_KEY;
 const ADDON_URL = process.env.ADDON_URL;
 
 const imageCache = new Map();
+const tmdbCache = new Map();
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const TMDB_CACHE_TTL_MS = 10 * 60 * 1000;
+const CACHE_DIR = path.join(__dirname, "image-cache");
+
+if (!fs.existsSync(CACHE_DIR)) {
+    fs.mkdirSync(CACHE_DIR, { recursive: true });
+}
+
+function cacheFilePath(cacheKey) {
+    const hash = crypto.createHash("sha256").update(cacheKey).digest("hex");
+    return path.join(CACHE_DIR, `${hash}.png`);
+}
+
+async function fetchTmdbJson(url) {
+    const cached = tmdbCache.get(url);
+    if (cached && Date.now() < cached.expires) {
+        return cached.data;
+    }
+
+    const res = await fetch(url);
+    if (!res.ok) {
+        throw new Error(`TMDB fetch failed: ${res.status} ${res.statusText}`);
+    }
+    const data = await res.json();
+    tmdbCache.set(url, { data, expires: Date.now() + TMDB_CACHE_TTL_MS });
+    if (tmdbCache.size > 1000) {
+        const oldestKey = tmdbCache.keys().next().value;
+        tmdbCache.delete(oldestKey);
+    }
+    return data;
+}
 
 let genreMap = {};
 async function fetchGenres() {
     try {
         const [movieRes, tvRes] = await Promise.all([
-            fetch(`https://api.themoviedb.org/3/genre/movie/list?api_key=${TMDB_API_KEY}`).then(r => r.json()),
-            fetch(`https://api.themoviedb.org/3/genre/tv/list?api_key=${TMDB_API_KEY}`).then(r => r.json())
+            fetchTmdbJson(`https://api.themoviedb.org/3/genre/movie/list?api_key=${TMDB_API_KEY}`),
+            fetchTmdbJson(`https://api.themoviedb.org/3/genre/tv/list?api_key=${TMDB_API_KEY}`)
         ]);
         if (movieRes.genres) movieRes.genres.forEach(g => genreMap[g.id] = g.name);
         if (tvRes.genres) tvRes.genres.forEach(g => genreMap[g.id] = g.name);
@@ -331,7 +365,7 @@ async function buildLogoComposite(logoPath, isNetwork, logoWidth, topOffset, rig
  * Shared cache middleware + probabilistic cache cleanup.
  * Returns true if the request was served from cache (caller should return early).
  */
-function serveCached(cacheKey, res) {
+async function serveCached(cacheKey, res) {
     const cached = imageCache.get(cacheKey);
     if (cached && Date.now() < cached.expires) {
         res.set("Content-Type", "image/png");
@@ -339,7 +373,22 @@ function serveCached(cacheKey, res) {
         res.send(cached.buffer);
         return true;
     }
-    // Probabilistic cleanup on cache miss
+
+    const filePath = cacheFilePath(cacheKey);
+    try {
+        const stats = await fs.promises.stat(filePath);
+        if (Date.now() < stats.mtimeMs + CACHE_TTL_MS) {
+            const buffer = await fs.promises.readFile(filePath);
+            imageCache.set(cacheKey, { buffer, expires: Date.now() + CACHE_TTL_MS });
+            res.set("Content-Type", "image/png");
+            res.set("Cache-Control", "public, max-age=86400");
+            res.send(buffer);
+            return true;
+        }
+    } catch (err) {
+        // ignore missing cache file
+    }
+
     if (Math.random() < 0.05) {
         for (const [k, v] of imageCache.entries()) {
             if (Date.now() > v.expires) imageCache.delete(k);
@@ -350,6 +399,11 @@ function serveCached(cacheKey, res) {
 
 function cacheAndSend(cacheKey, buffer, res) {
     imageCache.set(cacheKey, { buffer, expires: Date.now() + CACHE_TTL_MS });
+    fs.promises.writeFile(cacheFilePath(cacheKey), buffer).catch(() => { });
+    if (imageCache.size > 500) {
+        const oldestKey = imageCache.keys().next().value;
+        imageCache.delete(oldestKey);
+    }
     res.set("Content-Type", "image/png");
     res.set("Cache-Control", "public, max-age=86400");
     res.send(buffer);
@@ -378,8 +432,7 @@ builder.defineCatalogHandler(async (args) => {
     const TODAY = new Date();
 
     while (finalItems.length < 10 && page <= maxPages) {
-        const response = await fetch(`https://api.themoviedb.org/3/trending/${tmdbType}/day?api_key=${TMDB_API_KEY}&page=${page}`);
-        const data = await response.json();
+        const data = await fetchTmdbJson(`https://api.themoviedb.org/3/trending/${tmdbType}/day?api_key=${TMDB_API_KEY}&page=${page}`);
         if (!data.results || data.results.length === 0) break;
 
         let pageItems = data.results.filter(item => {
@@ -393,8 +446,7 @@ builder.defineCatalogHandler(async (args) => {
         if (type === 'movie' && pageItems.length > 0) {
             const releaseDatesData = await Promise.all(pageItems.map(async (movie) => {
                 try {
-                    const releaseRes = await fetch(`https://api.themoviedb.org/3/movie/${movie.id}/release_dates?api_key=${TMDB_API_KEY}`);
-                    const releaseData = await releaseRes.json();
+                    const releaseData = await fetchTmdbJson(`https://api.themoviedb.org/3/movie/${movie.id}/release_dates?api_key=${TMDB_API_KEY}`);
 
                     let earliestTheatrical = null;
                     let earliestDigital = null;
@@ -467,8 +519,7 @@ builder.defineCatalogHandler(async (args) => {
             if (userConfig.tags) {
                 const tvDetailsData = await Promise.all(pageItems.map(async (show) => {
                     try {
-                        const res = await fetch(`https://api.themoviedb.org/3/tv/${show.id}?api_key=${TMDB_API_KEY}`);
-                        const data = await res.json();
+                        const data = await fetchTmdbJson(`https://api.themoviedb.org/3/tv/${show.id}?api_key=${TMDB_API_KEY}`);
 
                         let nextEp = data.next_episode_to_air;
                         if (nextEp && nextEp.air_date) {
@@ -478,8 +529,7 @@ builder.defineCatalogHandler(async (args) => {
                                 const expectedCount = currentSeason?.episode_count || 0;
                                 if (expectedCount > 0 && nextEp.episode_number < expectedCount) {
                                     try {
-                                        const seasonRes = await fetch(`https://api.themoviedb.org/3/tv/${show.id}/season/${nextEp.season_number}?api_key=${TMDB_API_KEY}`);
-                                        const seasonData = await seasonRes.json();
+                                        const seasonData = await fetchTmdbJson(`https://api.themoviedb.org/3/tv/${show.id}/season/${nextEp.season_number}?api_key=${TMDB_API_KEY}`);
                                         if (seasonData.episodes) {
                                             const validEps = seasonData.episodes.filter(ep => ep.air_date && parseLocal(ep.air_date) <= TODAY);
                                             if (validEps.length > 0) {
@@ -624,7 +674,7 @@ app.get(
     ['/proxy-image-backdrop/:type/:id/:tag/:lang.png',
         '/proxy-image-backdrop/:type/:id/:tag/:lang/:logos.png'],
     async (req, res) => {
-        if (serveCached(req.originalUrl, res)) return;
+        if (await serveCached(req.originalUrl, res)) return;
 
         try {
             const { type, id, tag, lang, logos } = req.params;
@@ -641,7 +691,7 @@ app.get(
                 ? `https://api.themoviedb.org/3/${tmdbType}/${id}?api_key=${TMDB_API_KEY}&append_to_response=images,watch/providers`
                 : `https://api.themoviedb.org/3/${tmdbType}/${id}?api_key=${TMDB_API_KEY}&append_to_response=images`;
 
-            const details = await fetch(fetchUrl).then(r => r.json());
+            const details = await fetchTmdbJson(fetchUrl);
             const images = details.images || details;
             const originalLang = details.original_language;
 
@@ -723,7 +773,7 @@ app.get(
     ['/proxy-image-poster/:type/:id/:tag/:rank/:lang.png',
         '/proxy-image-poster/:type/:id/:tag/:rank/:lang/:logos.png'],
     async (req, res) => {
-        if (serveCached(req.originalUrl, res)) return;
+        if (await serveCached(req.originalUrl, res)) return;
 
         try {
             const { type, id, tag, rank, lang, logos } = req.params;
@@ -741,7 +791,7 @@ app.get(
                 ? `https://api.themoviedb.org/3/${tmdbType}/${id}?api_key=${TMDB_API_KEY}&append_to_response=images,watch/providers`
                 : `https://api.themoviedb.org/3/${tmdbType}/${id}?api_key=${TMDB_API_KEY}&append_to_response=images`;
 
-            const details = await fetch(fetchUrl).then(r => r.json());
+            const details = await fetchTmdbJson(fetchUrl);
             const images = details.images || details;
             const originalLang = details.original_language;
 
@@ -861,7 +911,7 @@ const configUI = `<!DOCTYPE html>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><circle cx=%2250%22 cy=%2250%22 r=%2250%22 fill=%22%238b0000%22/><path d=%22M25 70 l15 -25 l15 15 l20 -30%22 fill=%22none%22 stroke=%22white%22 stroke-width=%228%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22/><path d=%22M55 30 h20 v20%22 fill=%22none%22 stroke=%22white%22 stroke-width=%228%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22/></svg>">
     <style>
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #121212; color: #fff; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; padding: 40px 20px; box-sizing: border-box; }
+        body { font-family: 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #121212; color: #fff; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; padding: 40px 20px; box-sizing: border-box; }
         .wrapper { display: flex; flex-wrap: wrap; gap: 30px; justify-content: center; align-items: stretch; width: 100%; max-width: 1400px; }
         .container { background-color: #1e1e1e; padding: 30px; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,.5); width: 100%; max-width: 400px; box-sizing: border-box; display: flex; flex-direction: column; max-height: 90vh; overflow-y: auto; }
         .preview-container { background-color: #1e1e1e; padding: 30px; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,.5); width: 100%; max-width: 800px; box-sizing: border-box; display: flex; flex-direction: column; max-height: 90vh; overflow-y: auto; }
