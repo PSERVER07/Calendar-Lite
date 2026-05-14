@@ -148,7 +148,7 @@ function resolveProviderLogoInfo(tmdbType, details) {
     let usProviders = null;
     if (details['watch/providers']?.results) {
         const providers = details['watch/providers'].results;
-        usProviders = providers.US || Object.values(providers)[0];
+        usProviders = providers.US;
     }
 
     // Pre-filter flatrate providers to exclude channel/store-within-a-store versions
@@ -416,12 +416,16 @@ builder.defineCatalogHandler(async (args) => {
     const config = extra?.config || {};
 
     const userConfig = {
-        tags: config.tags !== "false",
-        logos: config.logos === "true",
-        ranked: config.ranked !== "false",
+        landscapeTags: config.landscapeTags !== undefined ? config.landscapeTags !== "false" : config.tags !== "false",
+        landscapeLogos: config.landscapeLogos !== undefined ? config.landscapeLogos === "true" : config.logos === "true",
+        landscapeRanked: config.landscapeRanked === "true",
+        landscapePosterLang: config.landscapePosterLang || config.posterLang || "en",
+        portraitTags: config.portraitTags !== undefined ? config.portraitTags !== "false" : config.tags !== "false",
+        portraitLogos: config.portraitLogos !== undefined ? config.portraitLogos === "true" : config.logos === "true",
+        portraitRanked: config.portraitRanked !== undefined ? config.portraitRanked !== "false" : config.ranked !== "false",
+        portraitPosterLang: config.portraitPosterLang || config.posterLang || "en",
         digitalOnly: config.digitalOnly !== "false",
-        listLang: config.listLang || "en",
-        posterLang: config.posterLang || "en"
+        listLang: config.listLang || "en"
     };
 
     const tmdbType = type === 'series' ? 'tv' : 'movie';
@@ -436,9 +440,16 @@ builder.defineCatalogHandler(async (args) => {
         if (!data.results || data.results.length === 0) break;
 
         let pageItems = data.results.filter(item => {
-            if (userConfig.listLang === 'non-en' && item.original_language === 'en') return false;
-            if (userConfig.listLang !== 'all' && userConfig.listLang !== 'non-en' && item.original_language !== userConfig.listLang) return false;
             if (seenIds.has(item.id)) return false;
+
+            const langs = userConfig.listLang.split(',');
+            let keep = false;
+            if (langs.includes('all')) keep = true;
+            else if (langs.includes('non-en') && item.original_language !== 'en') keep = true;
+            else if (langs.includes(item.original_language)) keep = true;
+
+            if (!keep) return false;
+
             seenIds.add(item.id);
             return true;
         });
@@ -453,18 +464,24 @@ builder.defineCatalogHandler(async (args) => {
                     let earliestPhysical = null;
 
                     if (releaseData.results) {
-                        for (const country of releaseData.results) {
-                            for (const release of country.release_dates) {
-                                const relDate = parseLocal(release.release_date.substring(0, 10));
-                                if (release.type === 1 || release.type === 2 || release.type === 3) {
-                                    if (!earliestTheatrical || relDate < earliestTheatrical) earliestTheatrical = relDate;
-                                } else if (release.type === 4) {
-                                    if (!earliestDigital || relDate < earliestDigital) earliestDigital = relDate;
-                                } else if (release.type === 5) {
-                                    if (!earliestPhysical || relDate < earliestPhysical) earliestPhysical = relDate;
+                        const usData = releaseData.results.find(c => c.iso_3166_1 === 'US');
+                        const globalDates = releaseData.results.flatMap(c => c.release_dates);
+
+                        const findEarliest = (releases, types) => {
+                            let earliest = null;
+                            for (const r of releases) {
+                                if (types.includes(r.type)) {
+                                    const d = parseLocal(r.release_date.substring(0, 10));
+                                    if (!earliest || d < earliest) earliest = d;
                                 }
                             }
-                        }
+                            return earliest;
+                        };
+
+                        const usReleases = usData ? usData.release_dates : [];
+                        earliestTheatrical = findEarliest(usReleases, [1, 2, 3]) || findEarliest(globalDates, [1, 2, 3]);
+                        earliestDigital = findEarliest(usReleases, [4]) || findEarliest(globalDates, [4]);
+                        earliestPhysical = findEarliest(usReleases, [5]) || findEarliest(globalDates, [5]);
                     }
                     return { earliestTheatrical, earliestDigital, earliestPhysical };
                 } catch { return { earliestTheatrical: null, earliestDigital: null, earliestPhysical: null }; }
@@ -479,6 +496,10 @@ builder.defineCatalogHandler(async (args) => {
 
             if (userConfig.digitalOnly) {
                 pageItems = pageItems.filter(item => {
+                    // Prevent TMDB metadata errors: if a future digital release exists,
+                    // it is not truly out yet, regardless of erroneous past physical dates.
+                    if (item._earliestDigital && item._earliestDigital > TODAY) return false;
+
                     const hasDigital = item._earliestDigital && item._earliestDigital <= TODAY;
                     const hasPhysical = item._earliestPhysical && item._earliestPhysical <= TODAY;
                     return hasDigital || hasPhysical;
@@ -486,7 +507,8 @@ builder.defineCatalogHandler(async (args) => {
             }
 
             pageItems.forEach(item => {
-                if (userConfig.tags) {
+                const needsTags = userConfig.landscapeTags || userConfig.portraitTags;
+                if (needsTags) {
                     const daysSincePhysical = (item._earliestPhysical && item._earliestPhysical <= TODAY) ? diffDays(TODAY, item._earliestPhysical) : null;
                     const daysSinceDigital = (item._earliestDigital && item._earliestDigital <= TODAY) ? diffDays(TODAY, item._earliestDigital) : null;
 
@@ -516,7 +538,8 @@ builder.defineCatalogHandler(async (args) => {
             });
 
         } else if (type === 'series' && pageItems.length > 0) {
-            if (userConfig.tags) {
+            const needsTags = userConfig.landscapeTags || userConfig.portraitTags;
+            if (needsTags) {
                 const tvDetailsData = await Promise.all(pageItems.map(async (show) => {
                     try {
                         const data = await fetchTmdbJson(`https://api.themoviedb.org/3/tv/${show.id}?api_key=${TMDB_API_KEY}`);
@@ -640,8 +663,9 @@ builder.defineCatalogHandler(async (args) => {
     const metas = finalItems.slice(0, 10).map((item, index) => {
         const rank = index + 1;
         let finalPosterUrl = item.poster_path ? `https://image.tmdb.org/t/p/w500${item.poster_path}` : null;
-        if (userConfig.ranked || userConfig.tags || userConfig.logos) {
-            finalPosterUrl = `${ADDON_URL}/proxy-image-poster/${type}/${item.id}/${item._tag || 'none'}/${userConfig.ranked ? rank : 'none'}/${userConfig.posterLang}/${userConfig.logos ? '1' : '0'}.png`;
+        const pTag = userConfig.portraitTags ? (item._tag || 'none') : 'none';
+        if (userConfig.portraitRanked || userConfig.portraitTags || userConfig.portraitLogos || userConfig.portraitPosterLang !== 'en') {
+            finalPosterUrl = `${ADDON_URL}/proxy-image-poster/${type}/${item.id}/${pTag}/${userConfig.portraitRanked ? rank : 'none'}/${userConfig.portraitPosterLang}/${userConfig.portraitLogos ? '1' : '0'}.png`;
         }
 
         let itemGenres = item.genre_ids ? item.genre_ids.map(gId => genreMap[gId]).filter(Boolean) : [];
@@ -654,13 +678,15 @@ builder.defineCatalogHandler(async (args) => {
             }
         }
 
+        const lTag = userConfig.landscapeTags ? (item._tag || 'none') : 'none';
+
         return {
             id: `tmdb:${item.id}`,
             name: item.title || item.name,
             type: type,
             genres: itemGenres,
             description: item.overview || "",
-            background: `${ADDON_URL}/proxy-image-backdrop/${type}/${item.id}/${item._tag || 'none'}/${userConfig.posterLang}/${userConfig.logos ? '1' : '0'}.png`,
+            background: `${ADDON_URL}/proxy-image-backdrop/${type}/${item.id}/${lTag}/${userConfig.landscapeRanked ? rank : 'none'}/${userConfig.landscapePosterLang}/${userConfig.landscapeLogos ? '1' : '0'}.png`,
             poster: finalPosterUrl
         };
     });
@@ -674,22 +700,34 @@ app.get(
     ['/proxy-image-backdrop/:type/:id/:tag/:lang.png',
         '/proxy-image-backdrop/:type/:id/:tag/:lang/:logos.png'],
     async (req, res) => {
+        const { type, id, tag, lang, logos } = req.params;
+        const newUrl = `/proxy-image-backdrop/${type}/${id}/${tag}/none/${lang}${logos ? `/${logos}` : ''}.png`;
+        return res.redirect(301, newUrl);
+    }
+);
+
+app.get(
+    ['/proxy-image-backdrop/:type/:id/:tag/:rank/:lang.png',
+        '/proxy-image-backdrop/:type/:id/:tag/:rank/:lang/:logos.png'],
+    async (req, res) => {
         if (await serveCached(req.originalUrl, res)) return;
 
         try {
-            const { type, id, tag, lang, logos } = req.params;
+            const { type, id, tag, rank, lang, logos } = req.params;
             const tmdbType = type === 'series' ? 'tv' : 'movie';
             const showLogos = logos === '1';
             const tagText = parseTagText(tag);
             const drawTag = !!tagText;
+            const drawRank = rank && rank !== 'none';
 
             const fallbackLangs = ['en', 'null', 'ja', 'ko', 'es', 'fr', 'de', 'hi', 'it', 'pt', 'ru', 'zh', 'th', 'tr', 'pl', 'nl', 'sv', 'ar'];
             const allowedLangs = [...new Set([lang, ...fallbackLangs])].map(l => l === 'null' ? null : l);
+            const tmdbLangs = [...new Set([lang, ...fallbackLangs])].join(',');
 
             // ── 1. Fetch TMDB metadata ────────────────────────────────────────
             const fetchUrl = showLogos
-                ? `https://api.themoviedb.org/3/${tmdbType}/${id}?api_key=${TMDB_API_KEY}&append_to_response=images,watch/providers`
-                : `https://api.themoviedb.org/3/${tmdbType}/${id}?api_key=${TMDB_API_KEY}&append_to_response=images`;
+                ? `https://api.themoviedb.org/3/${tmdbType}/${id}?api_key=${TMDB_API_KEY}&append_to_response=images,watch/providers&include_image_language=${tmdbLangs}`
+                : `https://api.themoviedb.org/3/${tmdbType}/${id}?api_key=${TMDB_API_KEY}&append_to_response=images&include_image_language=${tmdbLangs}`;
 
             const details = await fetchTmdbJson(fetchUrl);
             const images = details.images || details;
@@ -714,7 +752,7 @@ app.get(
             const logoInfo = showLogos ? resolveProviderLogoInfo(tmdbType, details) : null;
 
             // Fast path: nothing to draw → just redirect
-            if (!drawTag && !logoInfo) {
+            if (!drawTag && !drawRank && !logoInfo) {
                 return res.redirect(301, `https://image.tmdb.org/t/p/original${backdrop.file_path}`);
             }
 
@@ -732,7 +770,45 @@ app.get(
             const metadata = await backdropImage.metadata();
             const { width } = metadata;
 
-            // ── 3. Build composites (tag ops + color sample run in parallel inside) ──
+            // ── 3. Build rank SVG (sync, zero I/O) ───────────────────────────
+            let rankComposite = null;
+            if (drawRank) {
+                const fontSize = Math.round(metadata.height * 0.20);
+                const paddingTop = Math.round(metadata.height * 0.05);
+                const paddingLeft = Math.round(width * 0.05);
+                const fontStack = "'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif";
+
+                const rankSvg = `<svg width="${width}" height="${metadata.height}">
+                    <defs>
+                        <linearGradient id="rankGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%"   style="stop-color:#ffffff;stop-opacity:1"/>
+                            <stop offset="60%"  style="stop-color:#c0c0c0;stop-opacity:1"/>
+                            <stop offset="100%" style="stop-color:#808080;stop-opacity:1"/>
+                        </linearGradient>
+                        <filter id="rankShadow" x="-10%" y="-10%" width="120%" height="120%">
+                            <feGaussianBlur in="SourceAlpha" stdDeviation="3"/>
+                            <feOffset dx="3" dy="3" result="offsetblur"/>
+                            <feFlood flood-color="black" flood-opacity="0.9"/>
+                            <feComposite in2="offsetblur" operator="in"/>
+                            <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
+                        </filter>
+                        <radialGradient id="shimmerGradient" cx="0%" cy="0%" r="100%" fx="0%" fy="0%">
+                            <stop offset="0%"   style="stop-color:black;stop-opacity:0.6"/>
+                            <stop offset="40%"  style="stop-color:black;stop-opacity:0.3"/>
+                            <stop offset="100%" style="stop-color:black;stop-opacity:0"/>
+                        </radialGradient>
+                    </defs>
+                    <rect x="0" y="0" width="${width * 0.4}" height="${fontSize * 1.5}" fill="url(#shimmerGradient)"/>
+                    <text x="${paddingLeft}" y="${paddingTop + fontSize / 1.1}" text-anchor="start"
+                          font-family="${fontStack}" font-size="${fontSize}"
+                          fill="url(#rankGradient)" fill-opacity="0.80" font-weight="bold"
+                          filter="url(#rankShadow)">${rank}</text>
+                </svg>`;
+
+                rankComposite = { input: Buffer.from(rankSvg), top: 0, left: 0 };
+            }
+
+            // ── 4. Tag composites + logo fetch run in parallel ────────────────
             const [tagComposites, logoComposite] = await Promise.all([
                 drawTag
                     ? buildTagComposites(backdropBuffer, metadata, tagText, 0.15, 0.75)
@@ -750,6 +826,7 @@ app.get(
             ]);
 
             const compositeOperations = [
+                ...(rankComposite ? [rankComposite] : []),
                 ...tagComposites,
                 ...(logoComposite ? [logoComposite] : [])
             ];
@@ -785,11 +862,12 @@ app.get(
 
             const fallbackLangs = ['en', 'null', 'ja', 'ko', 'es', 'fr', 'de', 'hi', 'it', 'pt', 'ru', 'zh', 'th', 'tr', 'pl', 'nl', 'sv', 'ar'];
             const allowedLangs = [...new Set([lang, ...fallbackLangs])].map(l => l === 'null' ? null : l);
+            const tmdbLangs = [...new Set([lang, ...fallbackLangs])].join(',');
 
             // ── 1. Fetch TMDB metadata ────────────────────────────────────────
             const fetchUrl = showLogos
-                ? `https://api.themoviedb.org/3/${tmdbType}/${id}?api_key=${TMDB_API_KEY}&append_to_response=images,watch/providers`
-                : `https://api.themoviedb.org/3/${tmdbType}/${id}?api_key=${TMDB_API_KEY}&append_to_response=images`;
+                ? `https://api.themoviedb.org/3/${tmdbType}/${id}?api_key=${TMDB_API_KEY}&append_to_response=images,watch/providers&include_image_language=${tmdbLangs}`
+                : `https://api.themoviedb.org/3/${tmdbType}/${id}?api_key=${TMDB_API_KEY}&append_to_response=images&include_image_language=${tmdbLangs}`;
 
             const details = await fetchTmdbJson(fetchUrl);
             const images = details.images || details;
@@ -911,10 +989,10 @@ const configUI = `<!DOCTYPE html>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><circle cx=%2250%22 cy=%2250%22 r=%2250%22 fill=%22%238b0000%22/><path d=%22M25 70 l15 -25 l15 15 l20 -30%22 fill=%22none%22 stroke=%22white%22 stroke-width=%228%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22/><path d=%22M55 30 h20 v20%22 fill=%22none%22 stroke=%22white%22 stroke-width=%228%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22/></svg>">
     <style>
-        body { font-family: 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #121212; color: #fff; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; padding: 40px 20px; box-sizing: border-box; }
-        .wrapper { display: flex; flex-wrap: wrap; gap: 30px; justify-content: center; align-items: stretch; width: 100%; max-width: 1400px; }
-        .container { background-color: #1e1e1e; padding: 30px; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,.5); width: 100%; max-width: 400px; box-sizing: border-box; display: flex; flex-direction: column; max-height: 90vh; overflow-y: auto; }
-        .preview-container { background-color: #1e1e1e; padding: 30px; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,.5); width: 100%; max-width: 800px; box-sizing: border-box; display: flex; flex-direction: column; max-height: 90vh; overflow-y: auto; }
+        body { font-family: 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #121212; color: #fff; margin: 0; padding: 20px; box-sizing: border-box; height: 100vh; overflow: hidden; }
+        .wrapper { display: flex; flex-direction: row; gap: 30px; width: 100%; height: 100%; max-width: none; align-items: stretch; }
+        .container { background-color: #1e1e1e; padding: 30px; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,.5); flex: 0 0 420px; min-width: 420px; box-sizing: border-box; display: flex; flex-direction: column; height: 100%; max-height: 100%; overflow-y: auto; }
+        .preview-container { background-color: #1e1e1e; padding: 30px; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,.5); flex: 1; min-width: 0; box-sizing: border-box; display: flex; flex-direction: column; height: 100%; max-height: 100%; overflow-y: auto; }
         h2 { margin-top: 0; text-align: center; color: #e0e0e0; margin-bottom: 25px; }
         .form-group { margin-bottom: 20px; }
         label { display: block; margin-bottom: 8px; font-weight: 600; font-size: 14px; color: #b3b3b3; }
@@ -927,7 +1005,7 @@ const configUI = `<!DOCTYPE html>
         .link-container input { flex-grow: 1; padding: 12px; border-radius: 6px; border: 1px solid #333; background: #2a2a2a; color: #aaa; font-size: 13px; outline: none; }
         .link-container button { width: auto; margin-top: 0; padding: 0 20px; background-color: #8b0000; color: #fff; font-size: 14px; font-weight: 700; border: none; border-radius: 6px; cursor: pointer; transition: background .2s; }
         .link-container button:hover { background-color: #660000; }
-        .main-btn { width: 100%; padding: 14px; border: none; border-radius: 6px; background-color: #8b0000; color: #fff; font-size: 16px; font-weight: 700; cursor: pointer; transition: background .2s; margin-top: auto; }
+        .main-btn { width: 100%; padding: 14px; border: none; border-radius: 6px; background-color: #8b0000; color: #fff; font-size: 16px; font-weight: 700; cursor: pointer; transition: background .2s; }
         .main-btn:hover { background-color: #660000; }
         .preview-section { width: 100%; }
         .row-title { color: #e0e0e0; margin: 0 0 15px 0; font-size: 16px; border-bottom: 1px solid #333; padding-bottom: 8px; }
@@ -944,60 +1022,95 @@ const configUI = `<!DOCTYPE html>
         .item-card.portrait img { width: 150px; aspect-ratio: 2/3; }
         .item-title { font-size: 13px; color: #b3b3b3; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 100%; margin: 0; }
         .loading { color: #aaa; font-style: italic; font-size: 14px; padding: 20px 0; text-align: center; width: 100%; align-self: center; }
-        .tooltip { position: relative; cursor: help; display: flex; align-items: center; width: max-content; }
-        .tooltip .tooltiptext { visibility: hidden; width: 220px; background-color: #333; color: #fff; text-align: center; border-radius: 6px; padding: 8px; position: absolute; z-index: 10; bottom: 100%; left: 0; margin-bottom: 12px; opacity: 0; transition: opacity 0.2s; font-size: 12px; font-weight: 400; box-shadow: 0 4px 10px rgba(0,0,0,0.5); pointer-events: none; line-height: 1.4; }
-        .tooltip .tooltiptext::after { content: ""; position: absolute; top: 100%; left: 120px; margin-left: -5px; border-width: 5px; border-style: solid; border-color: #333 transparent transparent transparent; }
+        .multi-select { position: relative; width: 100%; margin-bottom: 15px; user-select: none; }
+        .select-box { padding: 12px; border-radius: 6px; border: 1px solid #333; background: #2a2a2a; color: #fff; font-size: 14px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; }
+        .select-box::after { content: "▼"; font-size: 10px; color: #aaa; }
+        .options-container { position: absolute; top: 100%; left: 0; right: 0; background: #2a2a2a; border: 1px solid #333; border-radius: 6px; max-height: 200px; overflow-y: auto; z-index: 100; display: none; flex-direction: column; margin-top: 4px; box-shadow: 0 4px 10px rgba(0,0,0,0.5); }
+        .options-container.show { display: flex; }
+        .options-container label { padding: 10px 12px; margin: 0; cursor: pointer; display: flex; align-items: center; border-bottom: 1px solid #333; color: #fff; font-size: 14px; font-weight: 400; }
+        .options-container label:last-child { border-bottom: none; }
+        .options-container label:hover { background: #333; }
+        .options-container input { margin-right: 10px; width: 16px; height: 16px; accent-color: #8b0000; cursor: pointer; }
+        .tooltip { position: relative; display: inline-flex; justify-content: center; align-items: center; background: #444; color: #ddd; border-radius: 50%; width: 16px; height: 16px; font-size: 12px; font-weight: bold; margin-left: 6px; cursor: help; }
+        .tooltip .tooltiptext { visibility: hidden; width: 220px; background-color: #333; color: #fff; text-align: center; border-radius: 6px; padding: 8px; position: absolute; z-index: 10; bottom: 100%; left: -20px; margin-bottom: 10px; opacity: 0; transition: opacity 0.2s; font-size: 12px; font-weight: 400; box-shadow: 0 4px 10px rgba(0,0,0,0.5); pointer-events: none; line-height: 1.4; }
+        .tooltip .tooltiptext::after { content: ""; position: absolute; top: 100%; left: 28px; margin-left: -5px; border-width: 5px; border-style: solid; border-color: #333 transparent transparent transparent; }
         .tooltip:hover .tooltiptext { visibility: visible; opacity: 1; }
-        .info-icon { display: inline-flex; justify-content: center; align-items: center; background: #444; color: #ddd; border-radius: 50%; width: 16px; height: 16px; font-size: 12px; font-weight: bold; margin-left: 6px; }
+        @media (max-width: 768px) {
+            body { padding: 10px; height: auto; overflow: auto; }
+            .wrapper { flex-direction: column; height: auto; }
+            .container, .preview-container { flex: none; width: 100%; max-width: 100%; min-width: 0; height: auto; max-height: none; overflow-y: visible; padding: 20px; }
+            .item-card.landscape { width: 220px; }
+            .item-card.landscape img { width: 220px; }
+            .item-card.portrait { width: 120px; }
+            .item-card.portrait img { width: 120px; }
+        }
     </style>
 </head>
 <body>
     <div class="wrapper">
         <div class="container">
             <h2>TMDB Top Today</h2>
-            <label class="form-group checkbox-group" for="tags"><input type="checkbox" id="tags" checked onchange="updateLink()"><span>Enable Poster Tags</span></label>
-            <label class="form-group checkbox-group" for="logos"><input type="checkbox" id="logos" onchange="updateLink()"><span>Enable Streaming Logos</span></label>
-            <label class="form-group checkbox-group" for="ranked"><input type="checkbox" id="ranked" checked onchange="updateLink()"><span>Enable Portrait Ranked Posters</span></label>
-            <label class="form-group checkbox-group" for="digitalOnly"><input type="checkbox" id="digitalOnly" checked onchange="updateLink()"><span>Filter Movies Not Released Digitally</span></label>
+
             <div class="form-group">
-                <label for="listLang">Language Filter</label>
-                <select id="listLang" onchange="updateLink()">
-                    <option value="all">All</option>
-                    <option value="en" selected>English</option>
-                    <option value="non-en">Global (non English)</option>
-                    <option value="ja">Japanese</option>
-                    <option value="ko">Korean</option>
-                    <option value="es">Spanish</option>
-                    <option value="fr">French</option>
-                    <option value="de">German</option>
-                    <option value="hi">Hindi</option>
-                </select>
+                <h3 style="color: #e0e0e0; margin: 0 0 15px 0; font-size: 16px; border-bottom: 1px solid #333; padding-bottom: 8px;">Catalog Filters</h3>
+                <label>Language</label>
+                <div class="multi-select" id="listLangSelect">
+                    <div class="select-box" onclick="toggleMultiSelect()">English</div>
+                    <div class="options-container" id="listLangOptions">
+                        <label><input type="checkbox" value="all" onchange="handleLangChange(this)"> All</label>
+                        <label><input type="checkbox" value="en" checked onchange="handleLangChange(this)"> English</label>
+                        <label><input type="checkbox" value="non-en" onchange="handleLangChange(this)"> Global (non English)</label>
+                        <label><input type="checkbox" value="ja" onchange="handleLangChange(this)"> Japanese</label>
+                        <label><input type="checkbox" value="ko" onchange="handleLangChange(this)"> Korean</label>
+                        <label><input type="checkbox" value="es" onchange="handleLangChange(this)"> Spanish</label>
+                        <label><input type="checkbox" value="fr" onchange="handleLangChange(this)"> French</label>
+                        <label><input type="checkbox" value="de" onchange="handleLangChange(this)"> German</label>
+                        <label><input type="checkbox" value="hi" onchange="handleLangChange(this)"> Hindi</label>
+                    </div>
+                </div>
+                <label class="checkbox-group" for="digitalOnly"><input type="checkbox" id="digitalOnly" checked onchange="updateLink()"><span>Filter Movies Not Released Digitally</span></label>
             </div>
+            
             <div class="form-group">
-                <label for="posterLang" class="tooltip">
-                    Poster Language
-                    <span class="info-icon">?</span>
-                    <span class="tooltiptext">If unavailable, falls back to the content's original language.</span>
-                </label>
-                <select id="posterLang" onchange="updateLink()">
-                    <option value="en" selected>English</option>
-                    <option value="ja">Japanese</option>
-                    <option value="ko">Korean</option>
-                    <option value="es">Spanish</option>
-                    <option value="fr">French</option>
-                    <option value="de">German</option>
-                    <option value="hi">Hindi</option>
-                    <option value="null">Textless</option>
-                </select>
-            </div>
-            <div class="form-group">
-                <label>Manifest URL</label>
-                <div class="link-container">
-                    <input type="text" id="manifestUrl" readonly>
-                    <button id="copyBtn" onclick="copyLink()">Copy</button>
+                <h3 style="color: #e0e0e0; margin: 0 0 15px 0; font-size: 16px; border-bottom: 1px solid #333; padding-bottom: 8px;">Poster Config</h3>
+                <div style="display: flex; justify-content: space-between; margin-bottom: 10px; color: #b3b3b3; font-weight: 600; font-size: 14px; padding: 0 10px;">
+                    <span style="flex: 1.5;">Config</span>
+                    <span style="flex: 1; text-align: center;">Landscape</span>
+                    <span style="flex: 1; text-align: center;">Portrait</span>
+                </div>
+                <div style="display: flex; justify-content: space-between; align-items: center; background: #2a2a2a; padding: 12px; border-radius: 6px; border: 1px solid #333; margin-bottom: 10px;">
+                    <span style="flex: 1.5; color: #fff; font-size: 15px;">Tags</span>
+                    <div style="flex: 1; text-align: center;"><input type="checkbox" id="landscapeTags" checked onchange="updateLink()" style="width: 18px; height: 18px; accent-color: #8b0000; cursor: pointer;"></div>
+                    <div style="flex: 1; text-align: center;"><input type="checkbox" id="portraitTags" checked onchange="updateLink()" style="width: 18px; height: 18px; accent-color: #8b0000; cursor: pointer;"></div>
+                </div>
+                <div style="display: flex; justify-content: space-between; align-items: center; background: #2a2a2a; padding: 12px; border-radius: 6px; border: 1px solid #333; margin-bottom: 10px;">
+                    <span style="flex: 1.5; color: #fff; font-size: 15px;">Streaming Logos</span>
+                    <div style="flex: 1; text-align: center;"><input type="checkbox" id="landscapeLogos" onchange="updateLink()" style="width: 18px; height: 18px; accent-color: #8b0000; cursor: pointer;"></div>
+                    <div style="flex: 1; text-align: center;"><input type="checkbox" id="portraitLogos" onchange="updateLink()" style="width: 18px; height: 18px; accent-color: #8b0000; cursor: pointer;"></div>
+                </div>
+                <div style="display: flex; justify-content: space-between; align-items: center; background: #2a2a2a; padding: 12px; border-radius: 6px; border: 1px solid #333; margin-bottom: 10px;">
+                    <span style="flex: 1.5; color: #fff; font-size: 15px;">Ranked</span>
+                    <div style="flex: 1; text-align: center;"><input type="checkbox" id="landscapeRanked" onchange="updateLink()" style="width: 18px; height: 18px; accent-color: #8b0000; cursor: pointer;"></div>
+                    <div style="flex: 1; text-align: center;"><input type="checkbox" id="portraitRanked" checked onchange="updateLink()" style="width: 18px; height: 18px; accent-color: #8b0000; cursor: pointer;"></div>
+                </div>
+                <div style="display: flex; justify-content: space-between; align-items: center; background: #2a2a2a; padding: 12px; border-radius: 6px; border: 1px solid #333; margin-bottom: 10px;">
+                    <span style="flex: 1.5; color: #fff; font-size: 15px;">Language <span class="tooltip">?<span class="tooltiptext">If unavailable, falls back to media source language.</span></span></span>
+                    <div style="flex: 2; text-align: center;">
+                        <select id="posterLang" onchange="updateLink()" style="width: 97.5%; padding: 6px; font-size: 12px; background: #1e1e1e; border: 1px solid #444; color: #fff; border-radius: 4px; outline: none;"><option value="en" selected>English</option><option value="ja">Japanese</option><option value="ko">Korean</option><option value="es">Spanish</option><option value="fr">French</option><option value="de">German</option><option value="hi">Hindi</option><option value="null">Textless</option></select>
+                    </div>
                 </div>
             </div>
-            <button id="installBtn" class="main-btn">Install</button>
+            
+            <div style="margin-top: auto;">
+                <div class="form-group">
+                    <label>Manifest URL</label>
+                    <div class="link-container">
+                        <input type="text" id="manifestUrl" readonly>
+                        <button id="copyBtn" onclick="copyLink()">Copy</button>
+                    </div>
+                </div>
+                <button id="installBtn" class="main-btn">Install</button>
+            </div>
         </div>
         
         <div class="preview-container">
@@ -1023,19 +1136,52 @@ const configUI = `<!DOCTYPE html>
         let currentShows = [];
         let currentMovies = [];
 
+        function toggleMultiSelect() {
+            document.getElementById('listLangOptions').classList.toggle('show');
+        }
+
+        document.addEventListener('click', function(e) {
+            if (!e.target.closest('.multi-select')) {
+                const opts = document.getElementById('listLangOptions');
+                if (opts) opts.classList.remove('show');
+            }
+        });
+
+        function handleLangChange(cb) {
+            if (cb.value === 'all' && cb.checked) {
+                document.querySelectorAll('#listLangOptions input').forEach(input => {
+                    if (input !== cb) input.checked = false;
+                });
+            } else if (cb.checked) {
+                const allCb = document.querySelector('#listLangOptions input[value="all"]');
+                if (allCb) allCb.checked = false;
+            }
+            updateLink();
+        }
+
         function updateLink() {
-            const t = document.getElementById('tags').checked,
-                  lo = document.getElementById('logos').checked,
-                  r = document.getElementById('ranked').checked,
-                  d = document.getElementById('digitalOnly').checked,
-                  l = document.getElementById('listLang').value,
-                  p = document.getElementById('posterLang').value;
+            const lt = document.getElementById('landscapeTags').checked,
+                  llo = document.getElementById('landscapeLogos').checked,
+                  lr = document.getElementById('landscapeRanked').checked,
+                  pt = document.getElementById('portraitTags').checked,
+                  plo = document.getElementById('portraitLogos').checked,
+                  pr_chk = document.getElementById('portraitRanked').checked,
+                  plang = document.getElementById('posterLang').value,
+                  d = document.getElementById('digitalOnly').checked;
                   
-            const c = \`tags=\${t}|logos=\${lo}|ranked=\${r}|digitalOnly=\${d}|listLang=\${l}|posterLang=\${p}\`;
+            const checkedLangs = Array.from(document.querySelectorAll('#listLangOptions input:checked'));
+            const l = checkedLangs.map(opt => opt.value).join(',') || 'all';
+            
+            const box = document.querySelector('.select-box');
+            if (checkedLangs.length === 0) box.textContent = 'All';
+            else if (checkedLangs.length <= 2) box.textContent = checkedLangs.map(cb => cb.parentElement.textContent.trim()).join(', ');
+            else box.textContent = checkedLangs.length + ' Languages Selected';
+                  
+            const c = "landscapeTags=" + lt + "|landscapeLogos=" + llo + "|landscapeRanked=" + lr + "|portraitTags=" + pt + "|portraitLogos=" + plo + "|portraitRanked=" + pr_chk + "|posterLang=" + plang + "|digitalOnly=" + d + "|listLang=" + l;
             const h = window.location.host, pr = window.location.protocol;
             
-            document.getElementById('manifestUrl').value = \`\${pr}//\${h}/\${c}/manifest.json\`;
-            document.getElementById('installBtn').onclick = () => { window.location.href = \`stremio://\${h}/\${c}/manifest.json\` };
+            document.getElementById('manifestUrl').value = pr + "//" + h + "/" + c + "/manifest.json";
+            document.getElementById('installBtn').onclick = () => { window.location.href = "stremio://" + h + "/" + c + "/manifest.json" };
             
             clearTimeout(previewTimeout);
             previewTimeout = setTimeout(() => updatePreviews(c, pr, h), 500);
@@ -1050,8 +1196,8 @@ const configUI = `<!DOCTYPE html>
             
             try {
                 const [showsRes, moviesRes] = await Promise.all([
-                    fetch(\`\${pr}//\${h}/\${config}/catalog/series/top_shows_today.json\`),
-                    fetch(\`\${pr}//\${h}/\${config}/catalog/movie/top_movies_today.json\`)
+                    fetch(pr + "//" + h + "/" + config + "/catalog/series/top_shows_today.json"),
+                    fetch(pr + "//" + h + "/" + config + "/catalog/movie/top_movies_today.json")
                 ]);
                 
                 const showsData = await showsRes.json();
@@ -1078,14 +1224,13 @@ const configUI = `<!DOCTYPE html>
                 return items.slice(0, 10).map(item => {
                     const tmdbId = item.id.replace('tmdb:', '');
                     const tmdbType = item.type === 'series' ? 'tv' : 'movie';
-                    return \`
-                    <a href="https://www.themoviedb.org/\${tmdbType}/\${tmdbId}" target="_blank" class="item-card \${mode}">
-                        \${mode === 'landscape' 
-                            ? \`<img src="\${item.background}" alt="bg" loading="lazy" />\`
-                            : \`<img src="\${item.poster}" alt="poster" loading="lazy" />\`}
-                        <p class="item-title" title="\${item.name}">\${item.name}</p>
-                    </a>
-                    \`;
+                    const imgTag = mode === 'landscape' 
+                        ? '<img src="' + item.background + '" alt="bg" loading="lazy" />'
+                        : '<img src="' + item.poster + '" alt="poster" loading="lazy" />';
+                    return '<a href="https://www.themoviedb.org/' + tmdbType + '/' + tmdbId + '" target="_blank" class="item-card ' + mode + '">' + 
+                           imgTag + 
+                           '<p class="item-title" title="' + item.name + '">' + item.name + '</p>' + 
+                           '</a>';
                 }).join('');
             };
             
