@@ -720,20 +720,22 @@ app.get(
             const drawTag = !!tagText;
             const drawRank = rank && rank !== 'none';
 
-            const fallbackLangs = ['en', 'null', 'ja', 'ko', 'es', 'fr', 'de', 'hi', 'it', 'pt', 'ru', 'zh', 'th', 'tr', 'pl', 'nl', 'sv', 'ar'];
-            const allowedLangs = [...new Set([lang, ...fallbackLangs])].map(l => l === 'null' ? null : l);
-            const tmdbLangs = [...new Set([lang, ...fallbackLangs])].join(',');
-
             // ── 1. Fetch TMDB metadata ────────────────────────────────────────
-            const fetchUrl = showLogos
-                ? `https://api.themoviedb.org/3/${tmdbType}/${id}?api_key=${TMDB_API_KEY}&append_to_response=images,watch/providers&include_image_language=${tmdbLangs}`
-                : `https://api.themoviedb.org/3/${tmdbType}/${id}?api_key=${TMDB_API_KEY}&append_to_response=images&include_image_language=${tmdbLangs}`;
-
-            const details = await fetchTmdbJson(fetchUrl);
-            const images = details.images || details;
+            const details = await fetchTmdbJson(`https://api.themoviedb.org/3/${tmdbType}/${id}?api_key=${TMDB_API_KEY}`);
             const originalLang = details.original_language;
 
-            if (originalLang && !allowedLangs.includes(originalLang)) allowedLangs.push(originalLang);
+            const fallbackLangs = ['en', 'null', 'ja', 'ko', 'es', 'fr', 'de', 'hi', 'it', 'pt', 'ru', 'zh', 'th', 'tr', 'pl', 'nl', 'sv', 'ar'];
+            const tmdbLangsSet = [...new Set([lang, originalLang, ...fallbackLangs])].filter(Boolean);
+            const allowedLangs = tmdbLangsSet.map(l => l === 'null' ? null : l);
+            const tmdbLangs = tmdbLangsSet.join(',');
+
+            const [images, providers] = await Promise.all([
+                fetchTmdbJson(`https://api.themoviedb.org/3/${tmdbType}/${id}/images?api_key=${TMDB_API_KEY}&include_image_language=${tmdbLangs}`),
+                showLogos ? fetchTmdbJson(`https://api.themoviedb.org/3/${tmdbType}/${id}/watch/providers?api_key=${TMDB_API_KEY}`) : Promise.resolve(null)
+            ]);
+
+            if (providers) details['watch/providers'] = providers;
+
             if (images.backdrops) {
                 images.backdrops = images.backdrops.filter(b => allowedLangs.includes(b.iso_639_1));
             }
@@ -860,20 +862,22 @@ app.get(
             const drawTag = !!tagText;
             const drawRank = rank && rank !== 'none';
 
-            const fallbackLangs = ['en', 'null', 'ja', 'ko', 'es', 'fr', 'de', 'hi', 'it', 'pt', 'ru', 'zh', 'th', 'tr', 'pl', 'nl', 'sv', 'ar'];
-            const allowedLangs = [...new Set([lang, ...fallbackLangs])].map(l => l === 'null' ? null : l);
-            const tmdbLangs = [...new Set([lang, ...fallbackLangs])].join(',');
-
             // ── 1. Fetch TMDB metadata ────────────────────────────────────────
-            const fetchUrl = showLogos
-                ? `https://api.themoviedb.org/3/${tmdbType}/${id}?api_key=${TMDB_API_KEY}&append_to_response=images,watch/providers&include_image_language=${tmdbLangs}`
-                : `https://api.themoviedb.org/3/${tmdbType}/${id}?api_key=${TMDB_API_KEY}&append_to_response=images&include_image_language=${tmdbLangs}`;
-
-            const details = await fetchTmdbJson(fetchUrl);
-            const images = details.images || details;
+            const details = await fetchTmdbJson(`https://api.themoviedb.org/3/${tmdbType}/${id}?api_key=${TMDB_API_KEY}`);
             const originalLang = details.original_language;
 
-            if (originalLang && !allowedLangs.includes(originalLang)) allowedLangs.push(originalLang);
+            const fallbackLangs = ['en', 'null', 'ja', 'ko', 'es', 'fr', 'de', 'hi', 'it', 'pt', 'ru', 'zh', 'th', 'tr', 'pl', 'nl', 'sv', 'ar'];
+            const tmdbLangsSet = [...new Set([lang, originalLang, ...fallbackLangs])].filter(Boolean);
+            const allowedLangs = tmdbLangsSet.map(l => l === 'null' ? null : l);
+            const tmdbLangs = tmdbLangsSet.join(',');
+
+            const [images, providers] = await Promise.all([
+                fetchTmdbJson(`https://api.themoviedb.org/3/${tmdbType}/${id}/images?api_key=${TMDB_API_KEY}&include_image_language=${tmdbLangs}`),
+                showLogos ? fetchTmdbJson(`https://api.themoviedb.org/3/${tmdbType}/${id}/watch/providers?api_key=${TMDB_API_KEY}`) : Promise.resolve(null)
+            ]);
+
+            if (providers) details['watch/providers'] = providers;
+
             if (images.posters) {
                 images.posters = images.posters.filter(p => allowedLangs.includes(p.iso_639_1));
             }
