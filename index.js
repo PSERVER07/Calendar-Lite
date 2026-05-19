@@ -107,6 +107,7 @@ const tagDisplayNameMap = {
     "premiere": "Premiere",
     "new_series": "New Series",
     "season_finale": "Season Finale",
+    "series_finale": "Series Finale",
     "final_season": "Final Season",
     "new_season": "New Season",
     "new_episode": "New Episode"
@@ -637,15 +638,19 @@ builder.defineCatalogHandler(async (args) => {
                             itemTag = "premiere";
                         } else if (firstAir && firstAir <= TODAY && diffDays(TODAY, firstAir) <= 13) {
                             itemTag = "new_series";
-                        } else if ((tvData.status === "Ended" || tvData.status === "Canceled") &&
-                            tvData.number_of_seasons > 1 && lastAir && lastAir <= TODAY && diffDays(TODAY, lastAir) <= 30) {
-                            itemTag = "final_season";
                         } else if (seasonAir && seasonAir <= TODAY && diffDays(TODAY, seasonAir) <= 13) {
                             itemTag = "new_season";
                         } else if (isFinale && lastAir && lastAir <= TODAY && diffDays(TODAY, lastAir) <= 13) {
-                            itemTag = "season_finale";
+                            if (tvData.status === "Ended" || tvData.status === "Canceled") {
+                                itemTag = "series_finale";
+                            } else {
+                                itemTag = "season_finale";
+                            }
                         } else if (lastAir && lastAir <= TODAY && diffDays(TODAY, lastAir) <= 6) {
                             itemTag = "new_episode";
+                        } else if ((tvData.status === "Ended" || tvData.status === "Canceled") &&
+                            tvData.number_of_seasons > 1 && lastAir && lastAir <= TODAY && diffDays(TODAY, lastAir) <= 30) {
+                            itemTag = "final_season";
                         }
                     }
 
