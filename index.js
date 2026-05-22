@@ -282,7 +282,14 @@ async function buildTagComposites(imageBuffer, metadata, tagText, heightRatio, f
     ]);
 
     const { meanR, meanG, meanB, luminance } = colorInfo;
-    const tagFillColor = `rgb(${meanR}, ${meanG}, ${meanB})`;
+
+    // Blend the sampled color with a neutral grey so the tag stands out more
+    const greyMixFactor = 0.25; // 25% blend with neutral grey
+    const adjR = Math.round(meanR + (128 - meanR) * greyMixFactor);
+    const adjG = Math.round(meanG + (128 - meanG) * greyMixFactor);
+    const adjB = Math.round(meanB + (128 - meanB) * greyMixFactor);
+
+    const tagFillColor = `rgb(${adjR}, ${adjG}, ${adjB})`;
     const textColor = luminance > 140 ? "#121212" : "#ffffff";
     let tagFillOpacity = luminance > 140 ? "0.65" : "0.45";
 
