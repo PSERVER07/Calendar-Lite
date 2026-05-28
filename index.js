@@ -629,8 +629,9 @@ builder.defineCatalogHandler(async (args) => {
                         if (nextAirDate > TODAY && diffDays(nextAirDate, TODAY) <= 5) {
                             const nextSeason = tvData.seasons?.find(s => s.season_number === nextEp.season_number);
                             const expectedCount = nextSeason?.episode_count || 0;
-                            let isNextFinale = nextEp.episode_type === "finale"
-                                || (expectedCount > 0 && nextEp.episode_number >= expectedCount);
+                            let isNextFinale = nextEp.episode_type
+                                ? nextEp.episode_type === "finale"
+                                : (expectedCount > 0 && nextEp.episode_number >= expectedCount);
                             if (isNextFinale) {
                                 itemTag = `finale_date_${formatFutureDate(nextAirDate).replace(' ', '_')}`;
                             }
@@ -1164,13 +1165,15 @@ const configUI = `<!DOCTYPE html>
         });
 
         function handleLangChange(cb) {
-            if (cb.value === 'all' && cb.checked) {
+            if ((cb.value === 'all' || cb.value === 'non-en') && cb.checked) {
                 document.querySelectorAll('#listLangOptions input').forEach(input => {
                     if (input !== cb) input.checked = false;
                 });
             } else if (cb.checked) {
                 const allCb = document.querySelector('#listLangOptions input[value="all"]');
                 if (allCb) allCb.checked = false;
+                const nonEnCb = document.querySelector('#listLangOptions input[value="non-en"]');
+                if (nonEnCb) nonEnCb.checked = false;
             }
             updateLink();
         }
