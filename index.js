@@ -283,15 +283,17 @@ async function buildTagComposites(imageBuffer, metadata, tagText, heightRatio, f
 
     const { meanR, meanG, meanB, luminance } = colorInfo;
 
-    // Blend the sampled color with a neutral grey so the tag stands out more
-    const greyMixFactor = 0.25; // 25% blend with neutral grey
-    const adjR = Math.round(meanR + (128 - meanR) * greyMixFactor);
-    const adjG = Math.round(meanG + (128 - meanG) * greyMixFactor);
-    const adjB = Math.round(meanB + (128 - meanB) * greyMixFactor);
+    const textColor = luminance > 140 ? "#121212" : "#ffffff";
+
+    // Blend the sampled color with white if text is black, otherwise grey
+    const greyMixFactor = 0.25;
+    const blendTarget = textColor === "#121212" ? 255 : 128;
+    const adjR = Math.round(meanR + (blendTarget - meanR) * greyMixFactor);
+    const adjG = Math.round(meanG + (blendTarget - meanG) * greyMixFactor);
+    const adjB = Math.round(meanB + (blendTarget - meanB) * greyMixFactor);
 
     const tagFillColor = `rgb(${adjR}, ${adjG}, ${adjB})`;
-    const textColor = luminance > 140 ? "#121212" : "#ffffff";
-    let tagFillOpacity = luminance > 140 ? "0.65" : "0.45";
+    let tagFillOpacity = "0.45";
 
     const composites = [];
     const fontStack = "'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif";
