@@ -765,11 +765,19 @@ app.get(
                 return res.redirect(301, 'https://via.placeholder.com/1280x720.png?text=No+Background+Available');
             }
 
+            let titleLogo = null;
+            if (lang !== 'null' && backdrop.iso_639_1 === null && images.logos && images.logos.length > 0) {
+                titleLogo = images.logos.find(l => l.iso_639_1 === lang)
+                    || (originalLang && images.logos.find(l => l.iso_639_1 === originalLang))
+                    || images.logos.find(l => l.iso_639_1 === 'en')
+                    || images.logos[0];
+            }
+
             // Resolve logo info (sync, no fetch yet)
             const logoInfo = showLogos ? resolveProviderLogoInfo(tmdbType, details) : null;
 
             // Fast path: nothing to draw → just redirect
-            if (!drawTag && !drawRank && !logoInfo) {
+            if (!drawTag && !drawRank && !logoInfo && !titleLogo) {
                 return res.redirect(301, `https://image.tmdb.org/t/p/original${backdrop.file_path}`);
             }
 
@@ -826,7 +834,7 @@ app.get(
             }
 
             // ── 4. Tag composites + logo fetch run in parallel ────────────────
-            const [tagComposites, logoComposite] = await Promise.all([
+            const [tagComposites, logoComposite, titleLogoComposite] = await Promise.all([
                 drawTag
                     ? buildTagComposites(backdropBuffer, metadata, tagText, 0.15, 0.75)
                     : Promise.resolve([]),
@@ -839,12 +847,60 @@ app.get(
                         width,
                         Math.round(metadata.height * 0.04)
                     )
+                    : Promise.resolve(null),
+                titleLogo
+                    ? (async () => {
+                        try {
+                            const res = await fetch(`https://image.tmdb.org/t/p/original${titleLogo.file_path}`);
+                            if (!res.ok) return null;
+                            const buf = Buffer.from(await res.arrayBuffer());
+                            const targetWidth = Math.round(width * 0.50);
+                            const maxHeight = Math.round(metadata.height * 0.50);
+                            let resized = await sharp(buf)
+                                .resize({ width: targetWidth, height: maxHeight, fit: 'inside' })
+                                .png()
+                                .toBuffer();
+                            const meta = await sharp(resized).metadata();
+                            const paddingLeft = Math.round(width * 0.05);
+                            const paddingBottom = Math.round(metadata.height * 0.20);
+
+                            const targetLeft = paddingLeft;
+                            const targetTop = metadata.height - meta.height - paddingBottom;
+
+                            // Sharp throws an error if the composite overlay is larger than the base image
+                            const extractLeft = Math.max(0, -targetLeft);
+                            const extractTop = Math.max(0, -targetTop);
+                            const extractRight = Math.min(meta.width, width - targetLeft);
+                            const extractBottom = Math.min(meta.height, metadata.height - targetTop);
+
+                            const extractWidth = extractRight - extractLeft;
+                            const extractHeight = extractBottom - extractTop;
+
+                            if (extractWidth <= 0 || extractHeight <= 0) return null;
+
+                            if (extractWidth < meta.width || extractHeight < meta.height) {
+                                resized = await sharp(resized)
+                                    .extract({ left: extractLeft, top: extractTop, width: extractWidth, height: extractHeight })
+                                    .toBuffer();
+                            }
+
+                            return {
+                                input: resized,
+                                left: targetLeft + extractLeft,
+                                top: targetTop + extractTop
+                            };
+                        } catch (e) {
+                            console.error("Title logo error:", e);
+                            return null;
+                        }
+                    })()
                     : Promise.resolve(null)
             ]);
 
             const compositeOperations = [
                 ...(rankComposite ? [rankComposite] : []),
                 ...tagComposites,
+                ...(titleLogoComposite ? [titleLogoComposite] : []),
                 ...(logoComposite ? [logoComposite] : [])
             ];
 
