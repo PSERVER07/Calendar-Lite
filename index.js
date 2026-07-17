@@ -464,6 +464,15 @@ builder.defineCatalogHandler(async (args) => {
             return true;
         });
 
+        if (pageItems.length > 0) {
+            const detailsData = await Promise.all(pageItems.map(async (item) => {
+                try {
+                    return await fetchTmdbJson(`https://api.themoviedb.org/3/${tmdbType}/${item.id}?api_key=${TMDB_API_KEY}&append_to_response=external_ids`);
+                } catch { return null; }
+            }));
+            pageItems.forEach((item, index) => item._details = detailsData[index]);
+        }
+
         if (type === 'movie' && pageItems.length > 0) {
             const releaseDatesData = await Promise.all(pageItems.map(async (movie) => {
                 try {
@@ -552,7 +561,7 @@ builder.defineCatalogHandler(async (args) => {
             if (needsTags) {
                 const tvDetailsData = await Promise.all(pageItems.map(async (show) => {
                     try {
-                        const data = await fetchTmdbJson(`https://api.themoviedb.org/3/tv/${show.id}?api_key=${TMDB_API_KEY}`);
+                        const data = await fetchTmdbJson(`https://api.themoviedb.org/3/tv/${show.id}?api_key=${TMDB_API_KEY}&append_to_response=external_ids`);
 
                         let nextEp = data.next_episode_to_air;
                         if (nextEp && nextEp.air_date) {
@@ -583,6 +592,7 @@ builder.defineCatalogHandler(async (args) => {
                 pageItems.forEach((item, index) => {
                     const tvData = tvDetailsData[index];
                     if (!tvData) return;
+                    item._details = tvData; // Ensure details are attached for later use
 
                     let lastEp = tvData.last_episode_to_air;
                     let nextEp = tvData.next_episode_to_air;
@@ -678,6 +688,8 @@ builder.defineCatalogHandler(async (args) => {
     const metas = finalItems.slice(0, 10).map((item, index) => {
         const rank = index + 1;
         let finalPosterUrl = item.poster_path ? `https://image.tmdb.org/t/p/w500${item.poster_path}` : null;
+        const imdbId = item._details?.imdb_id || item._details?.external_ids?.imdb_id;
+
         const pTag = userConfig.portraitTags ? (item._tag || 'none') : 'none';
         if (userConfig.portraitRanked || userConfig.portraitTags || userConfig.portraitLogos || userConfig.portraitPosterLang !== 'en') {
             finalPosterUrl = `${ADDON_URL}/proxy-image-poster/${type}/${item.id}/${pTag}/${userConfig.portraitRanked ? rank : 'none'}/${userConfig.portraitPosterLang}/${userConfig.portraitLogos ? '1' : '0'}.png`;
@@ -696,7 +708,8 @@ builder.defineCatalogHandler(async (args) => {
         const lTag = userConfig.landscapeTags ? (item._tag || 'none') : 'none';
 
         return {
-            id: `tmdb:${item.id}`,
+            id: imdbId || `tmdb:${item.id}`,
+            _tmdbId: item.id,
             name: item.title || item.name,
             type: type,
             genres: itemGenres,
@@ -1299,12 +1312,12 @@ const configUI = `<!DOCTYPE html>
             const renderItems = (items) => {
                 if (!items || items.length === 0) return '<div class="loading">No items found</div>';
                 return items.slice(0, 10).map(item => {
-                    const tmdbId = item.id.replace('tmdb:', '');
+                    const tmdbId = item._tmdbId || item.id.replace('tmdb:', '').replace('tt', '');
                     const tmdbType = item.type === 'series' ? 'tv' : 'movie';
                     const imgTag = mode === 'landscape' 
                         ? '<img src="' + item.background + '" alt="bg" loading="lazy" />'
                         : '<img src="' + item.poster + '" alt="poster" loading="lazy" />';
-                    return '<a href="https://www.themoviedb.org/' + tmdbType + '/' + tmdbId + '" target="_blank" class="item-card ' + mode + '">' + 
+                    return '<a href="https://www.themoviedb.org/' + tmdbType + '/' + tmdbId + '" target="_blank" class="item-card ' + mode + '">' +
                            imgTag + 
                            '<p class="item-title" title="' + item.name + '">' + item.name + '</p>' + 
                            '</a>';
