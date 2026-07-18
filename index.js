@@ -104,7 +104,7 @@ async function fetchTraktJson(pathname, options = {}) {
     const headers = {
         "Accept": "application/json",
         "Content-Type": "application/json",
-        "User-Agent": "TMDB-Top-Today/1.0",
+        "User-Agent": "Coming-Soon/1.0",
         "trakt-api-key": TRAKT_CLIENT_ID,
         "trakt-api-version": "2"
     };
@@ -505,15 +505,15 @@ fetchGenres();
 const manifest = {
     id: "com.trending.custom",
     version: "1.12.2",
-    name: "TMDB Top Today",
-    description: "Customizable Stremio catalogs for top trending TMDB content with optional graphic tags and Trakt lists.",
+    name: "Coming Soon",
+    description: "Customizable Stremio catalogs for upcoming and recently released content with optional graphic tags and Trakt lists.",
     behaviorHints: { configurable: true, configurationRequired: true },
     resources: ["catalog"],
     types: ["movie", "series"],
     idPrefixes: ["tmdb:"],
     catalogs: [
-        { id: "top_movies_today", type: "movie", name: "Top Movies Today" },
-        { id: "top_shows_today", type: "series", name: "Top Shows Today" }
+        { id: "top_movies_today", type: "movie", name: "Coming Soon Movies" },
+        { id: "top_shows_today", type: "series", name: "Coming Soon Shows" }
     ]
 };
 
@@ -1514,7 +1514,7 @@ app.get(
 const configUI = `<!DOCTYPE html>
 <html>
 <head>
-    <title>TMDB Top Today</title>
+    <title>Coming Soon</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><circle cx=%2250%22 cy=%2250%22 r=%2250%22 fill=%22%238b0000%22/><path d=%22M25 70 l15 -25 l15 15 l20 -30%22 fill=%22none%22 stroke=%22white%22 stroke-width=%228%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22/><path d=%22M55 30 h20 v20%22 fill=%22none%22 stroke=%22white%22 stroke-width=%228%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22/></svg>">
     <style>
@@ -1582,7 +1582,7 @@ const configUI = `<!DOCTYPE html>
 <body>
     <div class="wrapper">
         <div class="container">
-            <h2>TMDB Top Today</h2>
+            <h2>Coming Soon</h2>
 
             <div class="form-group">
                 <h3 style="color: #e0e0e0; margin: 0 0 15px 0; font-size: 16px; border-bottom: 1px solid #333; padding-bottom: 8px;">Catalog Filters</h3>
@@ -1644,11 +1644,11 @@ const configUI = `<!DOCTYPE html>
                 <h2 style="margin: 0;">Catalog Preview</h2>
             </div>
             <div class="preview-section">
-                <h3 class="row-title" id="shows-title">Top Shows Today</h3>
+                <h3 class="row-title" id="shows-title">Coming Soon Shows</h3>
                 <div id="shows-preview" class="horizontal-scroll"><div class="loading">Loading shows...</div></div>
             </div>
             <div class="preview-section" style="margin-top: 20px;">
-                <h3 class="row-title" id="movies-title">Top Movies Today</h3>
+                <h3 class="row-title" id="movies-title">Coming Soon Movies</h3>
                 <div id="movies-preview" class="horizontal-scroll"><div class="loading">Loading movies...</div></div>
             </div>
         </div>
@@ -1716,8 +1716,8 @@ const configUI = `<!DOCTYPE html>
         }
 
         function updatePreviewTitles(showsCatalog, moviesCatalog) {
-            document.getElementById('shows-title').textContent = traktCatalogDisplayName(showsCatalog) || 'Top Shows Today';
-            document.getElementById('movies-title').textContent = traktCatalogDisplayName(moviesCatalog) || 'Top Movies Today';
+            document.getElementById('shows-title').textContent = traktCatalogDisplayName(showsCatalog) || 'Coming Soon Shows';
+            document.getElementById('movies-title').textContent = traktCatalogDisplayName(moviesCatalog) || 'Coming Soon Movies';
         }
 
         function toggleMultiSelect() {

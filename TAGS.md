@@ -1,4 +1,4 @@
-# Stremio Trending Addon - Tag Logic
+# Coming Soon - Tag Logic
 
 This document outlines the various landscape graphic tags applied to content and the specific conditions required for them to appear.
 

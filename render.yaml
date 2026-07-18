@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: tmdb-trending-today
+    name: coming-soon
     runtime: docker
     plan: free
     branch: main
