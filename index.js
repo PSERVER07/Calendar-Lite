@@ -691,6 +691,7 @@ builder.defineCatalogHandler(async (args) => {
     const maxPages = useTraktCatalog ? 1 : 10;
     const catalogLimit = useTraktCatalog ? Infinity : 10;
     const TODAY = new Date();
+    const CURRENT_MONTH_START = new Date(TODAY.getFullYear(), TODAY.getMonth(), 1);
 
     while (finalItems.length < catalogLimit && page <= maxPages) {
         const data = useTraktCatalog
@@ -889,13 +890,13 @@ builder.defineCatalogHandler(async (args) => {
                             itemTag = "new_season";
                         } else if (nextEp?.air_date && parseLocal(nextEp.air_date) > TODAY && diffDays(parseLocal(nextEp.air_date), TODAY) <= 7 && lastAir && diffDays(TODAY, lastAir) > 4) {
                             itemTag = `next_episode_date_${formatFutureDate(parseLocal(nextEp.air_date)).replace(' ', '_')}`;
-                        } else if (isFinale && lastAir && lastAir <= TODAY && diffDays(TODAY, lastAir) <= 13) {
+                        } else if (isFinale && lastAir && lastAir <= TODAY && lastAir >= CURRENT_MONTH_START && diffDays(TODAY, lastAir) <= 30) {
                             if (tvData.status === "Ended" || tvData.status === "Canceled") {
                                 itemTag = "series_finale";
                             } else {
                                 itemTag = "season_finale";
                             }
-                        } else if (lastAir && lastAir <= TODAY && diffDays(TODAY, lastAir) <= 6) {
+                        } else if (lastAir && lastAir <= TODAY && diffDays(TODAY, lastAir) <= 3) {
                             itemTag = "new_episode";
                         } else if ((tvData.status === "Ended" || tvData.status === "Canceled") &&
                             tvData.number_of_seasons > 1 && lastAir && lastAir <= TODAY && diffDays(TODAY, lastAir) <= 30) {
