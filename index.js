@@ -14,6 +14,7 @@ app.use((req, res, next) => {
 
 const TMDB_API_KEY = process.env.TMDB_API_KEY;
 const TRAKT_CLIENT_ID = process.env.TRAKT_CLIENT_ID;
+const TRAKT_ACCESS_TOKEN = process.env.TRAKT_ACCESS_TOKEN;
 const ADDON_URL = process.env.ADDON_URL;
 
 const imageCache = new Map();
@@ -68,16 +69,19 @@ async function fetchTraktJson(pathname) {
         return cached.data;
     }
 
-    const res = await fetch(url, {
-        headers: {
-            "Content-Type": "application/json",
-            "trakt-api-version": "2",
-            "trakt-api-key": TRAKT_CLIENT_ID
-        }
-    });
+    const headers = {
+        "Content-Type": "application/json",
+        "trakt-api-version": "2",
+        "trakt-api-key": TRAKT_CLIENT_ID
+    };
+    if (TRAKT_ACCESS_TOKEN) {
+        headers.Authorization = `Bearer ${TRAKT_ACCESS_TOKEN}`;
+    }
+
+    const res = await fetch(url, { headers });
     if (!res.ok) {
         if (res.status === 403) {
-            throw new Error("Trakt returned 403 Forbidden. Check that TRAKT_CLIENT_ID is the Trakt Client ID, and that both the Trakt profile and list are public.");
+            throw new Error("Trakt returned 403 Forbidden. Check that TRAKT_CLIENT_ID is the Trakt Client ID. If it is correct, add TRAKT_ACCESS_TOKEN from your Trakt account.");
         }
         throw new Error(`Trakt fetch failed: ${res.status} ${res.statusText}`);
     }
