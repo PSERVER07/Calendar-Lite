@@ -285,6 +285,10 @@ function parseTagText(tag) {
         const [month, day] = tag.replace('coming_date_', '').split('_');
         return `Coming ${month} ${day}`;
     }
+    if (tag.startsWith('coming_soon_date_')) {
+        const [month, day] = tag.replace('coming_soon_date_', '').split('_');
+        return `Coming Soon ${month} ${day}`;
+    }
     if (tag.startsWith('finale_date_')) {
         const [month, day] = tag.replace('finale_date_', '').split('_');
         return `Finale ${month} ${day}`;
@@ -720,8 +724,11 @@ builder.defineCatalogHandler(async (args) => {
                         item._tag = daysSinceDigital <= 7 ? "new_release" : "new_movie";
                     } else if (!item._earliestDigital || item._earliestDigital > TODAY) {
                         if (item._earliestDigital) {
+                            const daysUntil = diffDays(item._earliestDigital, TODAY);
                             const formattedDate = formatFutureDate(item._earliestDigital);
-                            item._tag = `coming_date_${formattedDate.replace(' ', '_')}`;
+                            item._tag = daysUntil <= 14
+                                ? `coming_date_${formattedDate.replace(' ', '_')}`
+                                : `coming_soon_date_${formattedDate.replace(' ', '_')}`;
                         } else {
                             item._tag = "coming_soon";
                         }
