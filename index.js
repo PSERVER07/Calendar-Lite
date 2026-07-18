@@ -845,11 +845,10 @@ builder.defineCatalogHandler(async (args) => {
                     const firstAir = parseLocal(tvData.first_air_date);
                     const lastAir = lastEp?.air_date ? parseLocal(lastEp.air_date) : parseLocal(tvData.last_air_date);
 
-                    let itemTag = null, futureDate = null, isBrandNewSeries = false;
+                    let itemTag = null, futureDate = null;
 
                     if (firstAir && firstAir > TODAY) {
                         futureDate = firstAir;
-                        isBrandNewSeries = true;
                     } else if (nextEp && nextEp.episode_number === 1) {
                         futureDate = parseLocal(nextEp.air_date);
                     }
@@ -858,7 +857,7 @@ builder.defineCatalogHandler(async (args) => {
                         const daysUntil = diffDays(futureDate, TODAY);
                         if (daysUntil <= 14) {
                             itemTag = `coming_date_${formatFutureDate(futureDate).replace(' ', '_')}`;
-                        } else if (isBrandNewSeries) {
+                        } else {
                             itemTag = `coming_soon_date_${formatFutureDate(futureDate).replace(' ', '_')}`;
                         }
                     }
