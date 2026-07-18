@@ -587,8 +587,8 @@ builder.defineCatalogHandler(async (args) => {
     const config = extra?.config || {};
 
     const userConfig = {
-        landscapeTags: config.landscapeTags !== undefined ? config.landscapeTags !== "false" : config.tags !== "false",
-        landscapeLogos: config.landscapeLogos !== undefined ? config.landscapeLogos === "true" : config.logos === "true",
+        landscapeTags: false,
+        landscapeLogos: false,
         landscapeRanked: false,
         landscapePosterLang: config.landscapePosterLang || config.posterLang || "en",
         portraitTags: config.portraitTags !== undefined ? config.portraitTags !== "false" : config.tags !== "false",
@@ -1298,10 +1298,8 @@ const configUI = `<!DOCTYPE html>
         .horizontal-scroll::-webkit-scrollbar-thumb { background: #555; border-radius: 4px; }
         .horizontal-scroll::-webkit-scrollbar-thumb:hover { background: #8b0000; }
         .item-card { display: flex; flex-direction: column; gap: 10px; text-decoration: none; }
-        .item-card.landscape { width: 280px; }
         .item-card.portrait { width: 150px; }
         .item-card img { object-fit: cover; border-radius: 6px; background-color: #2a2a2a; }
-        .item-card.landscape img { width: 280px; aspect-ratio: 16/9; }
         .item-card.portrait img { width: 150px; aspect-ratio: 2/3; }
         .item-title { font-size: 13px; color: #b3b3b3; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 100%; margin: 0; }
         .loading { color: #aaa; font-style: italic; font-size: 14px; padding: 20px 0; text-align: center; width: 100%; align-self: center; }
@@ -1322,8 +1320,6 @@ const configUI = `<!DOCTYPE html>
             body { padding: 10px; height: auto; overflow: auto; }
             .wrapper { flex-direction: column; height: auto; }
             .container, .preview-container { flex: none; width: 100%; max-width: 100%; min-width: 0; height: auto; max-height: none; overflow-y: visible; padding: 20px; }
-            .item-card.landscape { width: 220px; }
-            .item-card.landscape img { width: 220px; }
             .item-card.portrait { width: 120px; }
             .item-card.portrait img { width: 120px; }
         }
@@ -1371,27 +1367,10 @@ const configUI = `<!DOCTYPE html>
             
             <div class="form-group">
                 <h3 style="color: #e0e0e0; margin: 0 0 15px 0; font-size: 16px; border-bottom: 1px solid #333; padding-bottom: 8px;">Poster Config</h3>
-                <div style="display: flex; justify-content: space-between; margin-bottom: 10px; color: #b3b3b3; font-weight: 600; font-size: 14px; padding: 0 10px;">
-                    <span style="flex: 1.5;">Config</span>
-                    <span style="flex: 1; text-align: center;">Landscape</span>
-                    <span style="flex: 1; text-align: center;">Portrait</span>
-                </div>
-                <div style="display: flex; justify-content: space-between; align-items: center; background: #2a2a2a; padding: 12px; border-radius: 6px; border: 1px solid #333; margin-bottom: 10px;">
-                    <span style="flex: 1.5; color: #fff; font-size: 15px;">Tags</span>
-                    <div style="flex: 1; text-align: center;"><input type="checkbox" id="landscapeTags" checked onchange="updateLink()" style="width: 18px; height: 18px; accent-color: #8b0000; cursor: pointer;"></div>
-                    <div style="flex: 1; text-align: center;"><input type="checkbox" id="portraitTags" checked onchange="updateLink()" style="width: 18px; height: 18px; accent-color: #8b0000; cursor: pointer;"></div>
-                </div>
-                <div style="display: flex; justify-content: space-between; align-items: center; background: #2a2a2a; padding: 12px; border-radius: 6px; border: 1px solid #333; margin-bottom: 10px;">
-                    <span style="flex: 1.5; color: #fff; font-size: 15px;">Streaming Logos</span>
-                    <div style="flex: 1; text-align: center;"><input type="checkbox" id="landscapeLogos" onchange="updateLink()" style="width: 18px; height: 18px; accent-color: #8b0000; cursor: pointer;"></div>
-                    <div style="flex: 1; text-align: center;"><input type="checkbox" id="portraitLogos" onchange="updateLink()" style="width: 18px; height: 18px; accent-color: #8b0000; cursor: pointer;"></div>
-                </div>
-                <div style="display: flex; justify-content: space-between; align-items: center; background: #2a2a2a; padding: 12px; border-radius: 6px; border: 1px solid #333; margin-bottom: 10px;">
-                    <span style="flex: 1.5; color: #fff; font-size: 15px;">Language <span class="tooltip">?<span class="tooltiptext">If unavailable, falls back to media source language.</span></span></span>
-                    <div style="flex: 2; text-align: center;">
-                        <select id="posterLang" onchange="updateLink()" style="width: 97.5%; padding: 6px; font-size: 12px; background: #1e1e1e; border: 1px solid #444; color: #fff; border-radius: 4px; outline: none;"><option value="en" selected>English</option><option value="ja">Japanese</option><option value="ko">Korean</option><option value="es">Spanish</option><option value="fr">French</option><option value="de">German</option><option value="hi">Hindi</option><option value="null">Textless</option></select>
-                    </div>
-                </div>
+                <label class="checkbox-group" for="portraitTags"><input type="checkbox" id="portraitTags" checked onchange="updateLink()"><span>Tags</span></label>
+                <label class="checkbox-group" for="portraitLogos"><input type="checkbox" id="portraitLogos" onchange="updateLink()"><span>Streaming Logos</span></label>
+                <label>Poster Language <span class="tooltip">?<span class="tooltiptext">If unavailable, falls back to media source language.</span></span></label>
+                <select id="posterLang" onchange="updateLink()"><option value="en" selected>English</option><option value="ja">Japanese</option><option value="ko">Korean</option><option value="es">Spanish</option><option value="fr">French</option><option value="de">German</option><option value="hi">Hindi</option><option value="null">Textless</option></select>
             </div>
             
             <div style="margin-top: auto;">
@@ -1409,10 +1388,6 @@ const configUI = `<!DOCTYPE html>
         <div class="preview-container">
             <div style="display: flex; justify-content: space-between; align-items: center; width: 100%; margin-bottom: 25px;">
                 <h2 style="margin: 0;">Catalog Preview</h2>
-                <select id="previewMode" onchange="renderCurrentData()" style="width: auto; padding: 8px; margin-bottom: 0;">
-                    <option value="landscape" selected>Landscape</option>
-                    <option value="portrait">Portrait</option>
-                </select>
             </div>
             <div class="preview-section">
                 <h3 class="row-title" id="shows-title">Top Shows Today</h3>
@@ -1517,9 +1492,7 @@ const configUI = `<!DOCTYPE html>
         }
 
         function updateLink() {
-            const lt = document.getElementById('landscapeTags').checked,
-                  llo = document.getElementById('landscapeLogos').checked,
-                  pt = document.getElementById('portraitTags').checked,
+            const pt = document.getElementById('portraitTags').checked,
                   plo = document.getElementById('portraitLogos').checked,
                   plang = document.getElementById('posterLang').value,
                   d = document.getElementById('digitalOnly').checked,
@@ -1538,7 +1511,7 @@ const configUI = `<!DOCTYPE html>
                   
             const traktShowsPart = traktShows ? "|traktShowsCatalog=" + encodeURIComponent(traktShows) : "";
             const traktMoviesPart = traktMovies ? "|traktMoviesCatalog=" + encodeURIComponent(traktMovies) : "";
-            const c = "landscapeTags=" + lt + "|landscapeLogos=" + llo + "|landscapeRanked=false|portraitTags=" + pt + "|portraitLogos=" + plo + "|portraitRanked=false|posterLang=" + plang + "|digitalOnly=" + d + "|listLang=" + l + traktShowsPart + traktMoviesPart;
+            const c = "landscapeTags=false|landscapeLogos=false|landscapeRanked=false|portraitTags=" + pt + "|portraitLogos=" + plo + "|portraitRanked=false|posterLang=" + plang + "|digitalOnly=" + d + "|listLang=" + l + traktShowsPart + traktMoviesPart;
             const h = window.location.host, pr = window.location.protocol;
             
             document.getElementById('manifestUrl').value = pr + "//" + h + "/" + c + "/manifest.json";
@@ -1582,18 +1555,14 @@ const configUI = `<!DOCTYPE html>
         function renderCurrentData() {
             const showsContainer = document.getElementById('shows-preview');
             const moviesContainer = document.getElementById('movies-preview');
-            const mode = document.getElementById('previewMode').value;
             
             const renderItems = (items) => {
                 if (!items || items.length === 0) return '<div class="loading">No items found</div>';
                 return items.map(item => {
                     const tmdbId = item._tmdbId || item.id.replace('tmdb:', '').replace('tt', '');
                     const tmdbType = item.type === 'series' ? 'tv' : 'movie';
-                    const imgTag = mode === 'landscape' 
-                        ? '<img src="' + item.background + '" alt="bg" loading="lazy" />'
-                        : '<img src="' + item.poster + '" alt="poster" loading="lazy" />';
-                    return '<a href="https://www.themoviedb.org/' + tmdbType + '/' + tmdbId + '" target="_blank" class="item-card ' + mode + '">' +
-                           imgTag + 
+                    return '<a href="https://www.themoviedb.org/' + tmdbType + '/' + tmdbId + '" target="_blank" class="item-card portrait">' +
+                           '<img src="' + item.poster + '" alt="poster" loading="lazy" />' + 
                            '<p class="item-title" title="' + item.name + '">' + item.name + '</p>' + 
                            '</a>';
                 }).join('');
