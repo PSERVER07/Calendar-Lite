@@ -261,7 +261,8 @@ const formatFutureDate = (dateObj) => {
 };
 
 const tagDisplayNameMap = {
-    "just_added": "Just Added",
+    "new_release": "New Release",
+    "new_movie": "New Movie",
     "coming_soon": "Coming Soon",
     "premiere": "Premiere",
     "new_series": "New Series",
@@ -715,17 +716,12 @@ builder.defineCatalogHandler(async (args) => {
                 if (needsTags) {
                     const daysSinceDigital = (item._earliestDigital && item._earliestDigital <= TODAY) ? diffDays(TODAY, item._earliestDigital) : null;
 
-                    if (daysSinceDigital !== null && daysSinceDigital <= 14 && item._earliestTheatrical && item._earliestTheatrical < item._earliestDigital) {
-                        item._tag = "just_added";
+                    if (daysSinceDigital !== null) {
+                        item._tag = daysSinceDigital <= 7 ? "new_release" : "new_movie";
                     } else if (!item._earliestDigital || item._earliestDigital > TODAY) {
                         if (item._earliestDigital) {
-                            const daysUntil = diffDays(item._earliestDigital, TODAY);
-                            if (daysUntil <= 14) {
-                                const formattedDate = formatFutureDate(item._earliestDigital);
-                                item._tag = `coming_date_${formattedDate.replace(' ', '_')}`;
-                            } else {
-                                item._tag = "coming_soon";
-                            }
+                            const formattedDate = formatFutureDate(item._earliestDigital);
+                            item._tag = `coming_date_${formattedDate.replace(' ', '_')}`;
                         } else {
                             item._tag = "coming_soon";
                         }

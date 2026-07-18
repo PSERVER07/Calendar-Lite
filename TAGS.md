@@ -7,11 +7,13 @@ This document outlines the various landscape graphic tags applied to content and
 Movie tags are calculated using the earliest available **Theatrical** and **Digital (VOD)** release dates from the TMDB API.
 
 *   **`Coming [Month] [Day]`**
-    *   **Logic:** The movie has not been released digitally yet, but its digital release date is exactly **14 days or fewer** away.
+    *   **Logic:** The movie has not been released digitally yet, and its digital release date is known.
 *   **`Coming Soon`**
-    *   **Logic:** The movie has not been released digitally yet, and the release date is either unknown or more than 14 days in the future.
-*   **`Just Added`**
-    *   **Logic:** The movie was released digitally within the last **14 days**, and it had a theatrical release date prior to its digital release.
+    *   **Logic:** The movie has not been released digitally yet, and the digital release date is unknown.
+*   **`New Release`**
+    *   **Logic:** The movie was released digitally within the last **7 days**.
+*   **`New Movie`**
+    *   **Logic:** The movie was released digitally **8 days or more** ago.
 
 ---
 
