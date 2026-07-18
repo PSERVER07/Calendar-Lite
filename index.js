@@ -115,10 +115,10 @@ function parseTraktCatalog(input) {
 
 function traktItemsPath(catalog, type) {
     const traktType = type === "series" ? "shows" : "movies";
-    if (catalog.kind === "list") return `/users/${encodeURIComponent(catalog.user)}/lists/${encodeURIComponent(catalog.list)}/items/${traktType}?extended=full`;
-    if (catalog.kind === "watchlist") return `/users/${encodeURIComponent(catalog.user)}/watchlist/${traktType}?extended=full`;
-    if (catalog.kind === "collection") return `/users/${encodeURIComponent(catalog.user)}/collection/${traktType}?extended=full`;
-    if (catalog.kind === "favorites") return `/users/${encodeURIComponent(catalog.user)}/favorites/${traktType}?extended=full`;
+    if (catalog.kind === "list") return `/users/${encodeURIComponent(catalog.user)}/lists/${encodeURIComponent(catalog.list)}/items/all?extended=full&limit=100`;
+    if (catalog.kind === "watchlist") return `/users/${encodeURIComponent(catalog.user)}/watchlist/${traktType}?extended=full&limit=100`;
+    if (catalog.kind === "collection") return `/users/${encodeURIComponent(catalog.user)}/collection/${traktType}?extended=full&limit=100`;
+    if (catalog.kind === "favorites") return `/users/${encodeURIComponent(catalog.user)}/favorites/${traktType}?extended=full&limit=100`;
     return null;
 }
 
@@ -132,6 +132,7 @@ async function fetchTraktTmdbSeeds(input, type) {
     const seen = new Set();
 
     return (Array.isArray(items) ? items : [])
+        .filter(item => !item.type || item.type === mediaKey)
         .map(item => item[mediaKey] || item)
         .filter(item => item?.ids?.tmdb && !seen.has(item.ids.tmdb) && seen.add(item.ids.tmdb))
         .map(item => ({
@@ -1411,6 +1412,9 @@ const configUI = `<!DOCTYPE html>
                 
                 const showsData = await showsRes.json();
                 const moviesData = await moviesRes.json();
+
+                if (!showsRes.ok || showsData.err) throw new Error(showsData.err || 'Shows catalog failed');
+                if (!moviesRes.ok || moviesData.err) throw new Error(moviesData.err || 'Movies catalog failed');
                 
                 currentShows = showsData.metas || [];
                 currentMovies = moviesData.metas || [];
@@ -1418,8 +1422,9 @@ const configUI = `<!DOCTYPE html>
                 renderCurrentData();
                 
             } catch (err) {
-                showsContainer.innerHTML = '<div class="loading">Error loading preview</div>';
-                moviesContainer.innerHTML = '<div class="loading">Error loading preview</div>';
+                const message = err && err.message ? err.message : 'Error loading preview';
+                showsContainer.innerHTML = '<div class="loading">' + message + '</div>';
+                moviesContainer.innerHTML = '<div class="loading">' + message + '</div>';
             }
         }
         
@@ -1484,6 +1489,11 @@ const configWithRequestBaseUrl = (req, config = {}) => ({
     addonUrl: requestBaseUrl(req)
 });
 
+const sendCatalogError = (res, error) => {
+    console.error("Catalog error:", error);
+    res.status(500).json({ err: error?.message || "Internal Server Error" });
+};
+
 app.get('/', (req, res) => res.send(configUI));
 app.get('/configure', (req, res) => res.send(configUI));
 app.get('/manifest.json', (req, res) => res.json(addonInterface.manifest));
@@ -1496,25 +1506,25 @@ app.get('/:config/manifest.json', (req, res) => {
 app.get('/catalog/:type/:id.json', async (req, res) => {
     try {
         res.json(await addonInterface.get('catalog', req.params.type, req.params.id, { config: configWithRequestBaseUrl(req) }));
-    } catch { res.status(500).json({ err: "Internal Server Error" }); }
+    } catch (error) { sendCatalogError(res, error); }
 });
 
 app.get('/catalog/:type/:id/:extra.json', async (req, res) => {
     try {
         res.json(await addonInterface.get('catalog', req.params.type, req.params.id, { config: configWithRequestBaseUrl(req) }));
-    } catch { res.status(500).json({ err: "Internal Server Error" }); }
+    } catch (error) { sendCatalogError(res, error); }
 });
 
 app.get('/:config/catalog/:type/:id.json', async (req, res) => {
     try {
         res.json(await addonInterface.get('catalog', req.params.type, req.params.id, { config: configWithRequestBaseUrl(req, parseConfig(req.params.config)) }));
-    } catch { res.status(500).json({ err: "Internal Server Error" }); }
+    } catch (error) { sendCatalogError(res, error); }
 });
 
 app.get('/:config/catalog/:type/:id/:extra.json', async (req, res) => {
     try {
         res.json(await addonInterface.get('catalog', req.params.type, req.params.id, { config: configWithRequestBaseUrl(req, parseConfig(req.params.config)) }));
-    } catch { res.status(500).json({ err: "Internal Server Error" }); }
+    } catch (error) { sendCatalogError(res, error); }
 });
 
 const PORT = process.env.PORT || 7000;
