@@ -263,8 +263,6 @@ const formatFutureDate = (dateObj) => {
 const tagDisplayNameMap = {
     "just_added": "Just Added",
     "coming_soon": "Coming Soon",
-    "now_streaming": "Now Streaming",
-    "out_on_bluray": "Now on Blu-ray",
     "premiere": "Premiere",
     "new_series": "New Series",
     "season_finale": "Season Finale",
@@ -715,14 +713,10 @@ builder.defineCatalogHandler(async (args) => {
             pageItems.forEach(item => {
                 const needsTags = userConfig.landscapeTags || userConfig.portraitTags;
                 if (needsTags) {
-                    const daysSincePhysical = (item._earliestPhysical && item._earliestPhysical <= TODAY) ? diffDays(TODAY, item._earliestPhysical) : null;
                     const daysSinceDigital = (item._earliestDigital && item._earliestDigital <= TODAY) ? diffDays(TODAY, item._earliestDigital) : null;
 
-                    if (daysSincePhysical !== null && daysSincePhysical <= 14) {
-                        item._tag = "out_on_bluray";
-                    } else if (daysSinceDigital !== null && daysSinceDigital <= 14) {
-                        item._tag = (item._earliestTheatrical && item._earliestTheatrical < item._earliestDigital)
-                            ? "just_added" : "now_streaming";
+                    if (daysSinceDigital !== null && daysSinceDigital <= 14 && item._earliestTheatrical && item._earliestTheatrical < item._earliestDigital) {
+                        item._tag = "just_added";
                     } else if (!item._earliestDigital || item._earliestDigital > TODAY) {
                         if (item._earliestDigital) {
                             const daysUntil = diffDays(item._earliestDigital, TODAY);
