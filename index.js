@@ -1451,20 +1451,15 @@ const configUI = `<!DOCTYPE html>
                 name = parts[2];
             }
 
-            return name
-                ? name.replace(/[-_]+/g, ' ')
-                    .replace(/\s+/g, ' ')
-                    .trim()
-                    .split(' ')
-                    .map(word => word ? word.charAt(0).toUpperCase() + word.slice(1).toLowerCase() : '')
-                    .join(' ')
-                : '';
+            const words = name.replace(/[-_]+/g, ' ').split(' ').filter(Boolean);
+            return words.map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()).join(' ');
         }
 
         function traktCatalogTarget(input) {
-            const name = traktCatalogDisplayName(input).toLowerCase();
-            if (/(^|\s)(shows?|series)$/.test(name)) return 'series';
-            if (/(^|\s)(movies?|films?)$/.test(name)) return 'movie';
+            const words = traktCatalogDisplayName(input).toLowerCase().split(' ').filter(Boolean);
+            const lastWord = words[words.length - 1] || '';
+            if (['show', 'shows', 'series'].includes(lastWord)) return 'series';
+            if (['movie', 'movies', 'film', 'films'].includes(lastWord)) return 'movie';
             return '';
         }
 
