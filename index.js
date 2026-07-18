@@ -700,7 +700,7 @@ builder.defineCatalogHandler(async (args) => {
                 item._earliestPhysical = dates.earliestPhysical;
             });
 
-            if (userConfig.digitalOnly) {
+            if (userConfig.digitalOnly && !useTraktCatalog) {
                 pageItems = pageItems.filter(item => {
                     // Prevent TMDB metadata errors: if a future digital release exists,
                     // it is not truly out yet, regardless of erroneous past physical dates.
@@ -1455,7 +1455,9 @@ const configUI = `<!DOCTYPE html>
                 ? name.replace(/[-_]+/g, ' ')
                     .replace(/\s+/g, ' ')
                     .trim()
-                    .replace(/\b\w/g, char => char.toUpperCase())
+                    .split(' ')
+                    .map(word => word ? word.charAt(0).toUpperCase() + word.slice(1).toLowerCase() : '')
+                    .join(' ')
                 : '';
         }
 
