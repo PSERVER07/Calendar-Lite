@@ -33,6 +33,11 @@ function cacheFilePath(cacheKey) {
     return path.join(CACHE_DIR, `${hash}.png`);
 }
 
+function requestBaseUrl(req) {
+    const protocol = req.get("x-forwarded-proto") || req.protocol || "https";
+    return `${protocol.split(",")[0]}://${req.get("host")}`;
+}
+
 async function fetchTmdbJson(url) {
     const cached = tmdbCache.get(url);
     if (cached && Date.now() < cached.expires) {
@@ -526,7 +531,8 @@ builder.defineCatalogHandler(async (args) => {
         portraitPosterLang: config.portraitPosterLang || config.posterLang || "en",
         digitalOnly: config.digitalOnly !== "false",
         listLang: config.listLang || "en",
-        traktCatalog: normalizeTraktCatalogInput(config.traktCatalog)
+        traktCatalog: normalizeTraktCatalogInput(config.traktCatalog),
+        addonUrl: config.addonUrl || ADDON_URL
     };
 
     const tmdbType = type === 'series' ? 'tv' : 'movie';
@@ -801,7 +807,7 @@ builder.defineCatalogHandler(async (args) => {
 
         const pTag = userConfig.portraitTags ? (item._tag || 'none') : 'none';
         if (userConfig.portraitRanked || userConfig.portraitTags || userConfig.portraitLogos || userConfig.portraitPosterLang !== 'en') {
-            finalPosterUrl = `${ADDON_URL}/proxy-image-poster/${type}/${item.id}/${pTag}/${userConfig.portraitRanked ? rank : 'none'}/${userConfig.portraitPosterLang}/${userConfig.portraitLogos ? '1' : '0'}.png`;
+            finalPosterUrl = `${userConfig.addonUrl}/proxy-image-poster/${type}/${item.id}/${pTag}/${userConfig.portraitRanked ? rank : 'none'}/${userConfig.portraitPosterLang}/${userConfig.portraitLogos ? '1' : '0'}.png`;
         }
 
         let itemGenres = item.genre_ids ? item.genre_ids.map(gId => genreMap[gId]).filter(Boolean) : [];
@@ -823,7 +829,7 @@ builder.defineCatalogHandler(async (args) => {
             type: type,
             genres: itemGenres,
             description: item.overview || "",
-            background: `${ADDON_URL}/proxy-image-backdrop/${type}/${item.id}/${lTag}/${userConfig.landscapeRanked ? rank : 'none'}/${userConfig.landscapePosterLang}/${userConfig.landscapeLogos ? '1' : '0'}.png`,
+            background: `${userConfig.addonUrl}/proxy-image-backdrop/${type}/${item.id}/${lTag}/${userConfig.landscapeRanked ? rank : 'none'}/${userConfig.landscapePosterLang}/${userConfig.landscapeLogos ? '1' : '0'}.png`,
             poster: finalPosterUrl
         };
     });
@@ -1473,6 +1479,11 @@ const parseConfig = (configStr) => {
 
 const addonInterface = builder.getInterface();
 
+const configWithRequestBaseUrl = (req, config = {}) => ({
+    ...config,
+    addonUrl: requestBaseUrl(req)
+});
+
 app.get('/', (req, res) => res.send(configUI));
 app.get('/configure', (req, res) => res.send(configUI));
 app.get('/manifest.json', (req, res) => res.json(addonInterface.manifest));
@@ -1484,25 +1495,25 @@ app.get('/:config/manifest.json', (req, res) => {
 
 app.get('/catalog/:type/:id.json', async (req, res) => {
     try {
-        res.json(await addonInterface.get('catalog', req.params.type, req.params.id, { config: {} }));
+        res.json(await addonInterface.get('catalog', req.params.type, req.params.id, { config: configWithRequestBaseUrl(req) }));
     } catch { res.status(500).json({ err: "Internal Server Error" }); }
 });
 
 app.get('/catalog/:type/:id/:extra.json', async (req, res) => {
     try {
-        res.json(await addonInterface.get('catalog', req.params.type, req.params.id, { config: {} }));
+        res.json(await addonInterface.get('catalog', req.params.type, req.params.id, { config: configWithRequestBaseUrl(req) }));
     } catch { res.status(500).json({ err: "Internal Server Error" }); }
 });
 
 app.get('/:config/catalog/:type/:id.json', async (req, res) => {
     try {
-        res.json(await addonInterface.get('catalog', req.params.type, req.params.id, { config: parseConfig(req.params.config) }));
+        res.json(await addonInterface.get('catalog', req.params.type, req.params.id, { config: configWithRequestBaseUrl(req, parseConfig(req.params.config)) }));
     } catch { res.status(500).json({ err: "Internal Server Error" }); }
 });
 
 app.get('/:config/catalog/:type/:id/:extra.json', async (req, res) => {
     try {
-        res.json(await addonInterface.get('catalog', req.params.type, req.params.id, { config: parseConfig(req.params.config) }));
+        res.json(await addonInterface.get('catalog', req.params.type, req.params.id, { config: configWithRequestBaseUrl(req, parseConfig(req.params.config)) }));
     } catch { res.status(500).json({ err: "Internal Server Error" }); }
 });
 
