@@ -303,8 +303,23 @@ async function fetchMovieReleaseDates(movie) {
     }
 }
 
+function dateOnlyInTimeZone(value, timeZone = "America/New_York") {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return null;
+    const parts = new Intl.DateTimeFormat("en-US", {
+        timeZone,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit"
+    }).formatToParts(date);
+    const dateParts = Object.fromEntries(parts.map(part => [part.type, part.value]));
+    return parseLocal(`${dateParts.year}-${dateParts.month}-${dateParts.day}`);
+}
+
 function normalizeEpisodeDate(value) {
-    return value ? releaseDateOnly(value) : null;
+    if (!value) return null;
+    const dateValue = String(value);
+    return dateValue.includes("T") ? dateOnlyInTimeZone(dateValue) : releaseDateOnly(dateValue);
 }
 
 function tmdbEpisodeFields(episode) {
@@ -363,6 +378,48 @@ function deriveEpisodeTimeline(episodes, today) {
     };
 }
 
+function episodeKey(episode) {
+    if (!episode) return null;
+    const season = episode.season_number;
+    const number = episode.episode_number;
+    return season != null && number != null ? `${season}:${number}` : null;
+}
+
+function earliestDate(...dates) {
+    return dates
+        .filter(Boolean)
+        .sort((a, b) => a - b)[0] || null;
+}
+
+function mergeEpisodeTimelines(timelines, today) {
+    const validTimelines = timelines.filter(Boolean);
+    const episodeMap = new Map();
+
+    validTimelines
+        .flatMap(timeline => timeline.episodes || [timeline.lastEp, timeline.nextEp])
+        .filter(Boolean)
+        .forEach(episode => {
+            const date = normalizeEpisodeDate(episode.air_date);
+            if (!date) return;
+            const key = episodeKey(episode) || `${episode.air_date}:${episode.name || ""}`;
+            const current = episodeMap.get(key);
+            const currentDate = current ? normalizeEpisodeDate(current.air_date) : null;
+            if (!current || date < currentDate) {
+                episodeMap.set(key, episode);
+            }
+        });
+
+    const mergedTimeline = deriveEpisodeTimeline([...episodeMap.values()], today);
+    if (!mergedTimeline) return validTimelines[0] || null;
+
+    return {
+        ...mergedTimeline,
+        firstAir: earliestDate(...validTimelines.map(timeline => timeline.firstAir), mergedTimeline.firstAir),
+        seasonAir: earliestDate(...validTimelines.map(timeline => timeline.seasonAir), mergedTimeline.seasonAir),
+        source: validTimelines.map(timeline => timeline.source).join("+")
+    };
+}
+
 async function fetchTvmazeEpisodeTimeline(tvData, today) {
     const externalIds = tvData.external_ids || {};
     let lookupUrl = null;
@@ -377,24 +434,27 @@ async function fetchTvmazeEpisodeTimeline(tvData, today) {
         const show = await fetchTvmazeJson(lookupUrl);
         if (!show?.id) return null;
         const episodes = await fetchTvmazeJson(`https://api.tvmaze.com/shows/${encodeURIComponent(show.id)}/episodes`);
-        const timeline = deriveEpisodeTimeline(Array.isArray(episodes) ? episodes.map(tvmazeEpisodeFields) : [], today);
-        return timeline ? { ...timeline, source: "tvmaze" } : null;
+        const episodeFields = Array.isArray(episodes) ? episodes.map(tvmazeEpisodeFields).filter(Boolean) : [];
+        const timeline = deriveEpisodeTimeline(episodeFields, today);
+        return timeline ? { ...timeline, episodes: episodeFields, source: "tvmaze" } : null;
     } catch {
         return null;
     }
 }
 
 function tmdbEpisodeTimeline(tvData, today) {
-    const timeline = deriveEpisodeTimeline([
+    const episodeFields = [
         tmdbEpisodeFields(tvData.last_episode_to_air),
         tmdbEpisodeFields(tvData.next_episode_to_air)
-    ].filter(Boolean), today);
+    ].filter(Boolean);
+    const timeline = deriveEpisodeTimeline(episodeFields, today);
 
     return {
         lastEp: timeline?.lastEp || tmdbEpisodeFields(tvData.last_episode_to_air),
         nextEp: timeline?.nextEp || tmdbEpisodeFields(tvData.next_episode_to_air),
         firstAir: normalizeEpisodeDate(tvData.first_air_date),
         seasonAir: null,
+        episodes: episodeFields,
         source: "tmdb"
     };
 }
@@ -411,9 +471,10 @@ async function fetchTraktEpisodeTimeline(traktId, today) {
         const calendar = await fetchTraktJson(`/calendars/all/shows/${yyyy}-${mm}-${dd}/${days}?extended=full`);
         const episodes = (Array.isArray(calendar) ? calendar : [])
             .filter(item => Number(item.show?.ids?.trakt) === Number(traktId))
-            .map(item => traktEpisodeFields(item.episode));
+            .map(item => traktEpisodeFields(item.episode))
+            .filter(Boolean);
         const timeline = deriveEpisodeTimeline(episodes, today);
-        return timeline ? { ...timeline, source: "trakt" } : null;
+        return timeline ? { ...timeline, episodes, source: "trakt" } : null;
     } catch {
         return null;
     }
@@ -421,12 +482,10 @@ async function fetchTraktEpisodeTimeline(traktId, today) {
 
 async function fetchSeriesEpisodeTimeline(tvData, traktId, today) {
     const tvmazeTimeline = await fetchTvmazeEpisodeTimeline(tvData, today);
-    if (tvmazeTimeline?.lastEp || tvmazeTimeline?.nextEp) return tvmazeTimeline;
-
     const tmdbTimeline = tmdbEpisodeTimeline(tvData, today);
-    if (tmdbTimeline?.lastEp || tmdbTimeline?.nextEp) return tmdbTimeline;
+    const traktTimeline = await fetchTraktEpisodeTimeline(traktId, today);
 
-    return await fetchTraktEpisodeTimeline(traktId, today);
+    return mergeEpisodeTimelines([tvmazeTimeline, tmdbTimeline, traktTimeline], today);
 }
 
 let genreMap = {};

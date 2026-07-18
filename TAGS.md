@@ -21,7 +21,7 @@ Movie tags are calculated using the earliest available **Theatrical** and **Digi
 
 ## Series (TV Shows)
 
-Series tags are calculated based on a combination of first air dates, recent/upcoming episode broadcast dates, season numbers, and the show's overall status (e.g., Ended/Canceled). Episode dates are resolved using TVMaze first, TMDB as backup, and Trakt calendar as the final fallback. The addon evaluates these conditions in order of priority.
+Series tags are calculated based on a combination of first air dates, recent/upcoming episode broadcast dates, season numbers, and the show's overall status (e.g., Ended/Canceled). Episode dates are resolved using TVMaze first, TMDB as backup, and Trakt calendar as the final fallback; timestamped episode dates are normalized to Eastern time, and when multiple sources provide the same season/episode with different dates, the earliest date is used. The addon evaluates these conditions in order of priority.
 
 ### Upcoming Content
 *   **`Coming [Month] [Day]`**
