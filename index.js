@@ -76,6 +76,9 @@ async function fetchTraktJson(pathname) {
         }
     });
     if (!res.ok) {
+        if (res.status === 403) {
+            throw new Error("Trakt returned 403 Forbidden. Check that TRAKT_CLIENT_ID is the Trakt Client ID, and that both the Trakt profile and list are public.");
+        }
         throw new Error(`Trakt fetch failed: ${res.status} ${res.statusText}`);
     }
     const data = await res.json();
