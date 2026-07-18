@@ -887,7 +887,7 @@ builder.defineCatalogHandler(async (args) => {
                             itemTag = "new_series";
                         } else if (seasonAir && seasonAir <= TODAY && diffDays(TODAY, seasonAir) <= 3) {
                             itemTag = "new_season";
-                        } else if (nextEp?.air_date && parseLocal(nextEp.air_date) > TODAY && diffDays(parseLocal(nextEp.air_date), TODAY) <= 7) {
+                        } else if (nextEp?.air_date && parseLocal(nextEp.air_date) > TODAY && diffDays(parseLocal(nextEp.air_date), TODAY) <= 7 && lastAir && diffDays(TODAY, lastAir) > 1) {
                             itemTag = `next_episode_date_${formatFutureDate(parseLocal(nextEp.air_date)).replace(' ', '_')}`;
                         } else if (isFinale && lastAir && lastAir <= TODAY && diffDays(TODAY, lastAir) <= 13) {
                             if (tvData.status === "Ended" || tvData.status === "Canceled") {

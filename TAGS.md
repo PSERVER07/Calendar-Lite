@@ -37,7 +37,7 @@ Series tags are calculated based on a combination of first air dates, recent/upc
 *   **`New Season`**
     *   **Logic:** A brand new season (season 2 or later) premiered within the last **3 days**.
 *   **`Next Episode [Month] [Day]`**
-    *   **Logic:** A new episode is going to air within the next **7 days**.
+    *   **Logic:** A new episode is going to air within the next **7 days** after the last episode aired more than **1 day** ago.
 *   **`Series Finale`**
     *   **Logic:** The series has officially been marked as "Ended" or "Canceled" by TMDB, and its final episode (which is a finale) aired within the last **13 days**.
 *   **`Season Finale`**
