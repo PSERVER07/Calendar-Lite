@@ -1393,11 +1393,11 @@ const configUI = `<!DOCTYPE html>
                 </select>
             </div>
             <div class="preview-section">
-                <h3 class="row-title">Top Shows Today</h3>
+                <h3 class="row-title" id="shows-title">Top Shows Today</h3>
                 <div id="shows-preview" class="horizontal-scroll"><div class="loading">Loading shows...</div></div>
             </div>
             <div class="preview-section" style="margin-top: 20px;">
-                <h3 class="row-title">Top Movies Today</h3>
+                <h3 class="row-title" id="movies-title">Top Movies Today</h3>
                 <div id="movies-preview" class="horizontal-scroll"><div class="loading">Loading movies...</div></div>
             </div>
         </div>
@@ -1406,6 +1406,37 @@ const configUI = `<!DOCTYPE html>
         let previewTimeout;
         let currentShows = [];
         let currentMovies = [];
+
+        function traktCatalogDisplayName(input) {
+            const raw = (input || '').trim().replace(/^@/, '');
+            if (!raw) return '';
+
+            let pathname = raw;
+            try {
+                pathname = new URL(raw).pathname;
+            } catch {
+                pathname = raw.startsWith('/') ? raw : '/' + raw;
+            }
+
+            const parts = pathname.split('/').filter(Boolean).map(part => decodeURIComponent(part));
+            let name = '';
+            if (parts[0] === 'users' && parts[1]) {
+                if (parts[2] === 'lists' && parts[3]) name = parts[3];
+                else if (parts[2]) name = parts[2];
+            } else if (parts.length === 2) {
+                name = parts[1];
+            } else if (parts.length === 3 && parts[1] === 'lists') {
+                name = parts[2];
+            }
+
+            return name ? name.charAt(0).toUpperCase() + name.slice(1) : '';
+        }
+
+        function updatePreviewTitles(trakt) {
+            const catalogName = traktCatalogDisplayName(trakt);
+            document.getElementById('shows-title').textContent = catalogName || 'Top Shows Today';
+            document.getElementById('movies-title').textContent = catalogName || 'Top Movies Today';
+        }
 
         function toggleMultiSelect() {
             document.getElementById('listLangOptions').classList.toggle('show');
@@ -1442,6 +1473,8 @@ const configUI = `<!DOCTYPE html>
                   plang = document.getElementById('posterLang').value,
                   d = document.getElementById('digitalOnly').checked,
                   trakt = document.getElementById('traktCatalog').value.trim();
+
+            updatePreviewTitles(trakt);
                   
             const checkedLangs = Array.from(document.querySelectorAll('#listLangOptions input:checked'));
             const l = checkedLangs.map(opt => opt.value).join(',') || 'all';
