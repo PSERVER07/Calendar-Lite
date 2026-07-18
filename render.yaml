@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: tmdb-trending-today
+    runtime: docker
+    plan: free
+    branch: main
+    autoDeployTrigger: commit
+    healthCheckPath: /manifest.json
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: TMDB_API_KEY
+        sync: false
+      - key: TRAKT_CLIENT_ID
+        sync: false
