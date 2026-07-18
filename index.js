@@ -81,7 +81,7 @@ async function fetchTraktJson(pathname) {
     const res = await fetch(url, { headers });
     if (!res.ok) {
         if (res.status === 403) {
-            throw new Error("Trakt returned 403 Forbidden. Check that TRAKT_CLIENT_ID is the Trakt Client ID. If it is correct, add TRAKT_ACCESS_TOKEN from your Trakt account.");
+            throw new Error(`Trakt returned 403 Forbidden. TRAKT_ACCESS_TOKEN configured: ${TRAKT_ACCESS_TOKEN ? "yes" : "no"}.`);
         }
         throw new Error(`Trakt fetch failed: ${res.status} ${res.statusText}`);
     }
@@ -122,11 +122,34 @@ function parseTraktCatalog(input) {
 
 function traktItemsPath(catalog, type) {
     const traktType = type === "series" ? "shows" : "movies";
-    if (catalog.kind === "list") return `/users/${encodeURIComponent(catalog.user)}/lists/${encodeURIComponent(catalog.list)}/items/all?extended=full&limit=100`;
+    if (catalog.kind === "list") return `/users/${encodeURIComponent(catalog.user)}/lists/${encodeURIComponent(catalog.list)}/items/${traktType}?extended=full&limit=100`;
     if (catalog.kind === "watchlist") return `/users/${encodeURIComponent(catalog.user)}/watchlist/${traktType}?extended=full&limit=100`;
     if (catalog.kind === "collection") return `/users/${encodeURIComponent(catalog.user)}/collection/${traktType}?extended=full&limit=100`;
     if (catalog.kind === "favorites") return `/users/${encodeURIComponent(catalog.user)}/favorites/${traktType}?extended=full&limit=100`;
     return null;
+}
+
+async function fetchTraktListItems(catalog, type) {
+    const encodedUser = encodeURIComponent(catalog.user);
+    const encodedList = encodeURIComponent(catalog.list);
+    const pluralType = type === "series" ? "shows" : "movies";
+    const singularType = type === "series" ? "show" : "movie";
+    const basePath = `/users/${encodedUser}/lists/${encodedList}/items`;
+    const candidates = [
+        `${basePath}/${pluralType}?extended=full&limit=100`,
+        `${basePath}?type=${singularType}&extended=full&limit=100`,
+        `${basePath}?extended=full&limit=100`
+    ];
+
+    let lastError = null;
+    for (const pathname of candidates) {
+        try {
+            return await fetchTraktJson(pathname);
+        } catch (error) {
+            lastError = error;
+        }
+    }
+    throw lastError;
 }
 
 async function fetchTraktTmdbSeeds(input, type) {
@@ -134,7 +157,9 @@ async function fetchTraktTmdbSeeds(input, type) {
     if (!catalog) throw new Error("Unsupported Trakt catalog. Use a public Trakt list URL, username/list-slug, users/username/watchlist, users/username/collection, or users/username/favorites.");
 
     const pathname = traktItemsPath(catalog, type);
-    const items = await fetchTraktJson(pathname);
+    const items = catalog.kind === "list"
+        ? await fetchTraktListItems(catalog, type)
+        : await fetchTraktJson(pathname);
     const mediaKey = type === "series" ? "show" : "movie";
     const seen = new Set();
 
