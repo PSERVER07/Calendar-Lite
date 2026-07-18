@@ -335,7 +335,6 @@ const tagDisplayNameMap = {
     "new_release": "New Release",
     "new_movie": "New Movie",
     "coming_soon": "Coming Soon",
-    "premiere": "Premiere",
     "new_series": "New Series",
     "season_finale": "Season Finale",
     "series_finale": "Series Finale",
@@ -363,6 +362,10 @@ function parseTagText(tag) {
     if (tag.startsWith('finale_date_')) {
         const [month, day] = tag.replace('finale_date_', '').split('_');
         return `Finale ${month} ${day}`;
+    }
+    if (tag.startsWith('next_episode_date_')) {
+        const [month, day] = tag.replace('next_episode_date_', '').split('_');
+        return `Next Episode ${month} ${day}`;
     }
     return null;
 }
@@ -880,12 +883,12 @@ builder.defineCatalogHandler(async (args) => {
                         const latestSeason = tvData.seasons?.slice().reverse().find(s => s.season_number > 0);
                         const seasonAir = latestSeason?.air_date ? parseLocal(latestSeason.air_date) : null;
 
-                        if (firstAir && firstAir <= TODAY && diffDays(TODAY, firstAir) <= 6) {
-                            itemTag = "premiere";
-                        } else if (firstAir && firstAir <= TODAY && diffDays(TODAY, firstAir) <= 13) {
+                        if (firstAir && firstAir <= TODAY && diffDays(TODAY, firstAir) <= 3) {
                             itemTag = "new_series";
-                        } else if (seasonAir && seasonAir <= TODAY && diffDays(TODAY, seasonAir) <= 13) {
+                        } else if (seasonAir && seasonAir <= TODAY && diffDays(TODAY, seasonAir) <= 3) {
                             itemTag = "new_season";
+                        } else if (nextEp?.air_date && parseLocal(nextEp.air_date) > TODAY && diffDays(parseLocal(nextEp.air_date), TODAY) <= 7) {
+                            itemTag = `next_episode_date_${formatFutureDate(parseLocal(nextEp.air_date)).replace(' ', '_')}`;
                         } else if (isFinale && lastAir && lastAir <= TODAY && diffDays(TODAY, lastAir) <= 13) {
                             if (tvData.status === "Ended" || tvData.status === "Canceled") {
                                 itemTag = "series_finale";
