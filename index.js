@@ -228,7 +228,7 @@ const manifest = {
     id: "com.trending.custom",
     version: "1.12.2",
     name: "TMDB Top Today",
-    description: "Customizable Stremio catalogs for top trending TMDB content with optional graphic tags and ranked posters.",
+    description: "Customizable Stremio catalogs for top trending TMDB content with optional graphic tags and Trakt lists.",
     behaviorHints: { configurable: true, configurationRequired: true },
     resources: ["catalog"],
     types: ["movie", "series"],
@@ -589,29 +589,35 @@ builder.defineCatalogHandler(async (args) => {
     const userConfig = {
         landscapeTags: config.landscapeTags !== undefined ? config.landscapeTags !== "false" : config.tags !== "false",
         landscapeLogos: config.landscapeLogos !== undefined ? config.landscapeLogos === "true" : config.logos === "true",
-        landscapeRanked: config.landscapeRanked === "true",
+        landscapeRanked: false,
         landscapePosterLang: config.landscapePosterLang || config.posterLang || "en",
         portraitTags: config.portraitTags !== undefined ? config.portraitTags !== "false" : config.tags !== "false",
         portraitLogos: config.portraitLogos !== undefined ? config.portraitLogos === "true" : config.logos === "true",
-        portraitRanked: config.portraitRanked !== undefined ? config.portraitRanked !== "false" : config.ranked !== "false",
+        portraitRanked: false,
         portraitPosterLang: config.portraitPosterLang || config.posterLang || "en",
         digitalOnly: config.digitalOnly !== "false",
         listLang: config.listLang || "en",
         traktCatalog: normalizeTraktCatalogInput(config.traktCatalog),
+        traktShowsCatalog: normalizeTraktCatalogInput(config.traktShowsCatalog || config.traktSeriesCatalog),
+        traktMoviesCatalog: normalizeTraktCatalogInput(config.traktMoviesCatalog),
         addonUrl: config.addonUrl || ADDON_URL
     };
 
     const tmdbType = type === 'series' ? 'tv' : 'movie';
+    const activeTraktCatalog = type === 'series'
+        ? (userConfig.traktShowsCatalog || userConfig.traktCatalog)
+        : (userConfig.traktMoviesCatalog || userConfig.traktCatalog);
     let finalItems = [];
     let seenIds = new Set();
     let page = 1;
-    const useTraktCatalog = !!userConfig.traktCatalog;
+    const useTraktCatalog = !!activeTraktCatalog;
     const maxPages = useTraktCatalog ? 1 : 10;
+    const catalogLimit = useTraktCatalog ? Infinity : 10;
     const TODAY = new Date();
 
-    while (finalItems.length < 10 && page <= maxPages) {
+    while (finalItems.length < catalogLimit && page <= maxPages) {
         const data = useTraktCatalog
-            ? { results: await fetchTraktTmdbSeeds(userConfig.traktCatalog, type) }
+            ? { results: await fetchTraktTmdbSeeds(activeTraktCatalog, type) }
             : await fetchTmdbJson(`https://api.themoviedb.org/3/trending/${tmdbType}/day?api_key=${TMDB_API_KEY}&page=${page}`);
         if (!data.results || data.results.length === 0) break;
 
@@ -866,7 +872,7 @@ builder.defineCatalogHandler(async (args) => {
         page++;
     }
 
-    const metas = finalItems.slice(0, 10).map((item, index) => {
+    const metas = (useTraktCatalog ? finalItems : finalItems.slice(0, 10)).map((item, index) => {
         const rank = index + 1;
         let finalPosterUrl = item.poster_path ? `https://image.tmdb.org/t/p/w500${item.poster_path}` : null;
         const imdbId = item._details?.imdb_id || item._details?.external_ids?.imdb_id;
@@ -1274,6 +1280,14 @@ const configUI = `<!DOCTYPE html>
         .link-container input { flex-grow: 1; padding: 12px; border-radius: 6px; border: 1px solid #333; background: #2a2a2a; color: #aaa; font-size: 13px; outline: none; }
         .link-container button { width: auto; margin-top: 0; padding: 0 20px; background-color: #8b0000; color: #fff; font-size: 14px; font-weight: 700; border: none; border-radius: 6px; cursor: pointer; transition: background .2s; }
         .link-container button:hover { background-color: #660000; }
+        .trakt-add-row { display: grid; grid-template-columns: 1fr auto auto auto; gap: 8px; margin-bottom: 12px; }
+        .trakt-add-row input, .trakt-slot input { width: 100%; padding: 12px; border-radius: 6px; border: 1px solid #333; background: #2a2a2a; color: #fff; font-size: 14px; outline: none; box-sizing: border-box; }
+        .trakt-add-row button { padding: 0 12px; border: none; border-radius: 6px; background: #333; color: #fff; font-weight: 700; cursor: pointer; }
+        .trakt-add-row button:hover { background: #444; }
+        .trakt-slot { margin-bottom: 12px; }
+        .trakt-slot label { display: flex; justify-content: space-between; align-items: center; }
+        .trakt-clear { border: none; background: transparent; color: #b3b3b3; cursor: pointer; font-size: 12px; }
+        .trakt-clear:hover { color: #fff; }
         .main-btn { width: 100%; padding: 14px; border: none; border-radius: 6px; background-color: #8b0000; color: #fff; font-size: 16px; font-weight: 700; cursor: pointer; transition: background .2s; }
         .main-btn:hover { background-color: #660000; }
         .preview-section { width: 100%; }
@@ -1322,8 +1336,21 @@ const configUI = `<!DOCTYPE html>
 
             <div class="form-group">
                 <h3 style="color: #e0e0e0; margin: 0 0 15px 0; font-size: 16px; border-bottom: 1px solid #333; padding-bottom: 8px;">Catalog Filters</h3>
-                <label>Trakt Catalog</label>
-                <input type="text" id="traktCatalog" placeholder="Public Trakt URL or username/list-slug" oninput="updateLink()" style="width: 100%; padding: 12px; border-radius: 6px; border: 1px solid #333; background: #2a2a2a; color: #fff; font-size: 14px; outline: none; box-sizing: border-box; margin-bottom: 15px;">
+                <label>Add Trakt Catalog</label>
+                <div class="trakt-add-row">
+                    <input type="text" id="traktCatalogInput" placeholder="Public Trakt URL or username/list-slug">
+                    <button type="button" onclick="assignTraktCatalog('auto')">Auto</button>
+                    <button type="button" onclick="assignTraktCatalog('series')">Shows</button>
+                    <button type="button" onclick="assignTraktCatalog('movie')">Movies</button>
+                </div>
+                <div class="trakt-slot">
+                    <label>Shows Catalog <button type="button" class="trakt-clear" onclick="clearTraktCatalog('series')">Clear</button></label>
+                    <input type="text" id="traktShowsCatalog" placeholder="No shows catalog selected" oninput="updateLink()">
+                </div>
+                <div class="trakt-slot">
+                    <label>Movies Catalog <button type="button" class="trakt-clear" onclick="clearTraktCatalog('movie')">Clear</button></label>
+                    <input type="text" id="traktMoviesCatalog" placeholder="No movies catalog selected" oninput="updateLink()">
+                </div>
                 <label>Language</label>
                 <div class="multi-select" id="listLangSelect">
                     <div class="select-box" onclick="toggleMultiSelect()">English</div>
@@ -1358,11 +1385,6 @@ const configUI = `<!DOCTYPE html>
                     <span style="flex: 1.5; color: #fff; font-size: 15px;">Streaming Logos</span>
                     <div style="flex: 1; text-align: center;"><input type="checkbox" id="landscapeLogos" onchange="updateLink()" style="width: 18px; height: 18px; accent-color: #8b0000; cursor: pointer;"></div>
                     <div style="flex: 1; text-align: center;"><input type="checkbox" id="portraitLogos" onchange="updateLink()" style="width: 18px; height: 18px; accent-color: #8b0000; cursor: pointer;"></div>
-                </div>
-                <div style="display: flex; justify-content: space-between; align-items: center; background: #2a2a2a; padding: 12px; border-radius: 6px; border: 1px solid #333; margin-bottom: 10px;">
-                    <span style="flex: 1.5; color: #fff; font-size: 15px;">Ranked</span>
-                    <div style="flex: 1; text-align: center;"><input type="checkbox" id="landscapeRanked" onchange="updateLink()" style="width: 18px; height: 18px; accent-color: #8b0000; cursor: pointer;"></div>
-                    <div style="flex: 1; text-align: center;"><input type="checkbox" id="portraitRanked" checked onchange="updateLink()" style="width: 18px; height: 18px; accent-color: #8b0000; cursor: pointer;"></div>
                 </div>
                 <div style="display: flex; justify-content: space-between; align-items: center; background: #2a2a2a; padding: 12px; border-radius: 6px; border: 1px solid #333; margin-bottom: 10px;">
                     <span style="flex: 1.5; color: #fff; font-size: 15px;">Language <span class="tooltip">?<span class="tooltiptext">If unavailable, falls back to media source language.</span></span></span>
@@ -1429,13 +1451,47 @@ const configUI = `<!DOCTYPE html>
                 name = parts[2];
             }
 
-            return name ? name.charAt(0).toUpperCase() + name.slice(1) : '';
+            return name
+                ? name.replace(/[-_]+/g, ' ')
+                    .replace(/\s+/g, ' ')
+                    .trim()
+                    .replace(/\b\w/g, char => char.toUpperCase())
+                : '';
         }
 
-        function updatePreviewTitles(trakt) {
-            const catalogName = traktCatalogDisplayName(trakt);
-            document.getElementById('shows-title').textContent = catalogName || 'Top Shows Today';
-            document.getElementById('movies-title').textContent = catalogName || 'Top Movies Today';
+        function traktCatalogTarget(input) {
+            const name = traktCatalogDisplayName(input).toLowerCase();
+            if (/(^|\s)(shows?|series)$/.test(name)) return 'series';
+            if (/(^|\s)(movies?|films?)$/.test(name)) return 'movie';
+            return '';
+        }
+
+        function assignTraktCatalog(target) {
+            const input = document.getElementById('traktCatalogInput');
+            const value = input.value.trim();
+            if (!value) return;
+
+            const resolvedTarget = target === 'auto' ? traktCatalogTarget(value) : target;
+            if (resolvedTarget === 'series') {
+                document.getElementById('traktShowsCatalog').value = value;
+            } else if (resolvedTarget === 'movie') {
+                document.getElementById('traktMoviesCatalog').value = value;
+            } else {
+                document.getElementById('traktShowsCatalog').value = value;
+            }
+
+            input.value = '';
+            updateLink();
+        }
+
+        function clearTraktCatalog(target) {
+            document.getElementById(target === 'series' ? 'traktShowsCatalog' : 'traktMoviesCatalog').value = '';
+            updateLink();
+        }
+
+        function updatePreviewTitles(showsCatalog, moviesCatalog) {
+            document.getElementById('shows-title').textContent = traktCatalogDisplayName(showsCatalog) || 'Top Shows Today';
+            document.getElementById('movies-title').textContent = traktCatalogDisplayName(moviesCatalog) || 'Top Movies Today';
         }
 
         function toggleMultiSelect() {
@@ -1466,15 +1522,14 @@ const configUI = `<!DOCTYPE html>
         function updateLink() {
             const lt = document.getElementById('landscapeTags').checked,
                   llo = document.getElementById('landscapeLogos').checked,
-                  lr = document.getElementById('landscapeRanked').checked,
                   pt = document.getElementById('portraitTags').checked,
                   plo = document.getElementById('portraitLogos').checked,
-                  pr_chk = document.getElementById('portraitRanked').checked,
                   plang = document.getElementById('posterLang').value,
                   d = document.getElementById('digitalOnly').checked,
-                  trakt = document.getElementById('traktCatalog').value.trim();
+                  traktShows = document.getElementById('traktShowsCatalog').value.trim(),
+                  traktMovies = document.getElementById('traktMoviesCatalog').value.trim();
 
-            updatePreviewTitles(trakt);
+            updatePreviewTitles(traktShows, traktMovies);
                   
             const checkedLangs = Array.from(document.querySelectorAll('#listLangOptions input:checked'));
             const l = checkedLangs.map(opt => opt.value).join(',') || 'all';
@@ -1484,8 +1539,9 @@ const configUI = `<!DOCTYPE html>
             else if (checkedLangs.length <= 2) box.textContent = checkedLangs.map(cb => cb.parentElement.textContent.trim()).join(', ');
             else box.textContent = checkedLangs.length + ' Languages Selected';
                   
-            const traktPart = trakt ? "|traktCatalog=" + encodeURIComponent(trakt) : "";
-            const c = "landscapeTags=" + lt + "|landscapeLogos=" + llo + "|landscapeRanked=" + lr + "|portraitTags=" + pt + "|portraitLogos=" + plo + "|portraitRanked=" + pr_chk + "|posterLang=" + plang + "|digitalOnly=" + d + "|listLang=" + l + traktPart;
+            const traktShowsPart = traktShows ? "|traktShowsCatalog=" + encodeURIComponent(traktShows) : "";
+            const traktMoviesPart = traktMovies ? "|traktMoviesCatalog=" + encodeURIComponent(traktMovies) : "";
+            const c = "landscapeTags=" + lt + "|landscapeLogos=" + llo + "|landscapeRanked=false|portraitTags=" + pt + "|portraitLogos=" + plo + "|portraitRanked=false|posterLang=" + plang + "|digitalOnly=" + d + "|listLang=" + l + traktShowsPart + traktMoviesPart;
             const h = window.location.host, pr = window.location.protocol;
             
             document.getElementById('manifestUrl').value = pr + "//" + h + "/" + c + "/manifest.json";
@@ -1533,7 +1589,7 @@ const configUI = `<!DOCTYPE html>
             
             const renderItems = (items) => {
                 if (!items || items.length === 0) return '<div class="loading">No items found</div>';
-                return items.slice(0, 10).map(item => {
+                return items.map(item => {
                     const tmdbId = item._tmdbId || item.id.replace('tmdb:', '').replace('tt', '');
                     const tmdbType = item.type === 'series' ? 'tv' : 'movie';
                     const imgTag = mode === 'landscape' 
