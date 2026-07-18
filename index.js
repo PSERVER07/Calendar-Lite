@@ -62,35 +62,52 @@ async function fetchTmdbJson(url) {
     return data;
 }
 
-async function fetchTraktJson(pathname) {
+function formatTraktErrorBody(body) {
+    return body ? ` Body: ${body.replace(/\s+/g, " ").slice(0, 160)}` : "";
+}
+
+async function fetchTraktJson(pathname, options = {}) {
     if (!TRAKT_CLIENT_ID) {
         throw new Error("TRAKT_CLIENT_ID is required for Trakt catalogs.");
     }
 
+    const useToken = options.useToken !== false && !!TRAKT_ACCESS_TOKEN;
     const url = `https://api.trakt.tv${pathname}`;
-    const cached = traktCache.get(url);
+    const cacheKey = `${url}|token:${useToken ? "yes" : "no"}`;
+    const cached = traktCache.get(cacheKey);
     if (cached && Date.now() < cached.expires) {
         return cached.data;
     }
 
     const headers = {
+        "Accept": "application/json",
         "Content-Type": "application/json",
-        "trakt-api-version": "2",
-        "trakt-api-key": TRAKT_CLIENT_ID
+        "User-Agent": "TMDB-Top-Today/1.0",
+        "trakt-api-key": TRAKT_CLIENT_ID,
+        "trakt-api-version": "2"
     };
-    if (TRAKT_ACCESS_TOKEN) {
+    if (useToken) {
         headers.Authorization = `Bearer ${TRAKT_ACCESS_TOKEN}`;
     }
 
     const res = await fetch(url, { headers });
     if (!res.ok) {
+        const body = await res.text().catch(() => "");
         if (res.status === 403) {
-            throw new Error(`Trakt returned 403 Forbidden for ${pathname}. TRAKT_ACCESS_TOKEN configured: ${TRAKT_ACCESS_TOKEN ? "yes" : "no"}.`);
+            const error = new Error(`Trakt returned 403 Forbidden for ${pathname}. Authorization sent: ${useToken ? "yes" : "no"}.${formatTraktErrorBody(body)}`);
+            error.status = res.status;
+            error.pathname = pathname;
+            error.usedToken = useToken;
+            throw error;
         }
-        throw new Error(`Trakt fetch failed for ${pathname}: ${res.status} ${res.statusText}`);
+        const error = new Error(`Trakt fetch failed for ${pathname}: ${res.status} ${res.statusText}.${formatTraktErrorBody(body)}`);
+        error.status = res.status;
+        error.pathname = pathname;
+        error.usedToken = useToken;
+        throw error;
     }
     const data = await res.json();
-    traktCache.set(url, { data, expires: Date.now() + TRAKT_CACHE_TTL_MS });
+    traktCache.set(cacheKey, { data, expires: Date.now() + TRAKT_CACHE_TTL_MS });
     if (traktCache.size > 300) {
         const oldestKey = traktCache.keys().next().value;
         traktCache.delete(oldestKey);
@@ -147,14 +164,25 @@ async function fetchTraktListItems(catalog, type) {
     ];
 
     let lastError = null;
+    const errors = [];
     for (const pathname of candidates) {
         try {
             return await fetchTraktJson(pathname);
         } catch (error) {
+            if ((error.status === 401 || error.status === 403) && error.usedToken) {
+                try {
+                    return await fetchTraktJson(pathname, { useToken: false });
+                } catch (fallbackError) {
+                    errors.push(fallbackError.message);
+                    lastError = fallbackError;
+                    continue;
+                }
+            }
+            errors.push(error.message);
             lastError = error;
         }
     }
-    throw lastError;
+    throw new Error(errors.length ? `Unable to fetch Trakt list. Tried: ${errors.join(" | ")}` : lastError.message);
 }
 
 async function fetchTraktTmdbSeeds(input, type) {
