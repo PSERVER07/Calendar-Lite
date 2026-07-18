@@ -25,11 +25,11 @@ Series tags are calculated based on a combination of first air dates, recent/upc
 
 ### Upcoming Content
 *   **`Coming [Month] [Day]`**
-    *   **Logic:** A brand new series *or* the first episode of a new season is scheduled to air within the next **14 days**.
-*   **`Coming Soon`**
+    *   **Logic:** A brand new series *or* the first episode of a new season is scheduled to air within the next **14 days or fewer**.
+*   **`Coming Soon [Month] [Day]`**
     *   **Logic:** A brand new series is scheduled to air, but the premiere is more than 14 days in the future.
 *   **`Finale [Month] [Day]`**
-    *   **Logic:** The upcoming episode is confirmed to be a finale (either by the API's `episode_type` or by reaching the season's expected episode count) and is airing within the next **5 days**.
+    *   **Logic:** The upcoming episode is confirmed to be a finale (either by the API's `episode_type` or by reaching the season's expected episode count) and is airing within the next **7 days**.
 
 ### Recently Aired Content
 *   **`Premiere`**

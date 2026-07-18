@@ -859,13 +859,13 @@ builder.defineCatalogHandler(async (args) => {
                         if (daysUntil <= 14) {
                             itemTag = `coming_date_${formatFutureDate(futureDate).replace(' ', '_')}`;
                         } else if (isBrandNewSeries) {
-                            itemTag = "coming_soon";
+                            itemTag = `coming_soon_date_${formatFutureDate(futureDate).replace(' ', '_')}`;
                         }
                     }
 
                     if (!itemTag && nextEp?.air_date) {
                         const nextAirDate = parseLocal(nextEp.air_date);
-                        if (nextAirDate > TODAY && diffDays(nextAirDate, TODAY) <= 5) {
+                        if (nextAirDate > TODAY && diffDays(nextAirDate, TODAY) <= 7) {
                             const nextSeason = tvData.seasons?.find(s => s.season_number === nextEp.season_number);
                             const expectedCount = nextSeason?.episode_count || 0;
                             let isNextFinale = nextEp.episode_type
