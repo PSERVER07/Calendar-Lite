@@ -5,6 +5,10 @@ const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
 
+function cleanEnvValue(value) {
+    return (value || "").trim().replace(/^["']|["']$/g, "");
+}
+
 const app = express();
 app.use((req, res, next) => {
     res.setHeader("Access-Control-Allow-Origin", "*");
@@ -12,10 +16,10 @@ app.use((req, res, next) => {
     next();
 });
 
-const TMDB_API_KEY = process.env.TMDB_API_KEY;
-const TRAKT_CLIENT_ID = process.env.TRAKT_CLIENT_ID;
-const TRAKT_ACCESS_TOKEN = process.env.TRAKT_ACCESS_TOKEN;
-const ADDON_URL = process.env.ADDON_URL;
+const TMDB_API_KEY = cleanEnvValue(process.env.TMDB_API_KEY);
+const TRAKT_CLIENT_ID = cleanEnvValue(process.env.TRAKT_CLIENT_ID);
+const TRAKT_ACCESS_TOKEN = cleanEnvValue(process.env.TRAKT_ACCESS_TOKEN).replace(/^Bearer\s+/i, "");
+const ADDON_URL = cleanEnvValue(process.env.ADDON_URL);
 
 const imageCache = new Map();
 const tmdbCache = new Map();
@@ -81,9 +85,9 @@ async function fetchTraktJson(pathname) {
     const res = await fetch(url, { headers });
     if (!res.ok) {
         if (res.status === 403) {
-            throw new Error(`Trakt returned 403 Forbidden. TRAKT_ACCESS_TOKEN configured: ${TRAKT_ACCESS_TOKEN ? "yes" : "no"}.`);
+            throw new Error(`Trakt returned 403 Forbidden for ${pathname}. TRAKT_ACCESS_TOKEN configured: ${TRAKT_ACCESS_TOKEN ? "yes" : "no"}.`);
         }
-        throw new Error(`Trakt fetch failed: ${res.status} ${res.statusText}`);
+        throw new Error(`Trakt fetch failed for ${pathname}: ${res.status} ${res.statusText}`);
     }
     const data = await res.json();
     traktCache.set(url, { data, expires: Date.now() + TRAKT_CACHE_TTL_MS });
@@ -136,6 +140,7 @@ async function fetchTraktListItems(catalog, type) {
     const singularType = type === "series" ? "show" : "movie";
     const basePath = `/users/${encodedUser}/lists/${encodedList}/items`;
     const candidates = [
+        `${basePath}/${singularType}?extended=full&limit=100`,
         `${basePath}/${pluralType}?extended=full&limit=100`,
         `${basePath}?type=${singularType}&extended=full&limit=100`,
         `${basePath}?extended=full&limit=100`
