@@ -13,12 +13,15 @@ app.use((req, res, next) => {
 });
 
 const TMDB_API_KEY = process.env.TMDB_API_KEY;
+const TRAKT_CLIENT_ID = process.env.TRAKT_CLIENT_ID;
 const ADDON_URL = process.env.ADDON_URL;
 
 const imageCache = new Map();
 const tmdbCache = new Map();
+const traktCache = new Map();
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const TMDB_CACHE_TTL_MS = 10 * 60 * 1000;
+const TRAKT_CACHE_TTL_MS = 10 * 60 * 1000;
 const CACHE_DIR = path.join(__dirname, "image-cache");
 
 if (!fs.existsSync(CACHE_DIR)) {
@@ -47,6 +50,93 @@ async function fetchTmdbJson(url) {
         tmdbCache.delete(oldestKey);
     }
     return data;
+}
+
+async function fetchTraktJson(pathname) {
+    if (!TRAKT_CLIENT_ID) {
+        throw new Error("TRAKT_CLIENT_ID is required for Trakt catalogs.");
+    }
+
+    const url = `https://api.trakt.tv${pathname}`;
+    const cached = traktCache.get(url);
+    if (cached && Date.now() < cached.expires) {
+        return cached.data;
+    }
+
+    const res = await fetch(url, {
+        headers: {
+            "Content-Type": "application/json",
+            "trakt-api-version": "2",
+            "trakt-api-key": TRAKT_CLIENT_ID
+        }
+    });
+    if (!res.ok) {
+        throw new Error(`Trakt fetch failed: ${res.status} ${res.statusText}`);
+    }
+    const data = await res.json();
+    traktCache.set(url, { data, expires: Date.now() + TRAKT_CACHE_TTL_MS });
+    if (traktCache.size > 300) {
+        const oldestKey = traktCache.keys().next().value;
+        traktCache.delete(oldestKey);
+    }
+    return data;
+}
+
+function normalizeTraktCatalogInput(input) {
+    return (input || "").trim().replace(/^@/, "");
+}
+
+function parseTraktCatalog(input) {
+    const raw = normalizeTraktCatalogInput(input);
+    if (!raw) return null;
+
+    let pathname = raw;
+    try {
+        pathname = new URL(raw).pathname;
+    } catch {
+        pathname = raw.startsWith("/") ? raw : `/${raw}`;
+    }
+
+    const parts = pathname.split("/").filter(Boolean).map(part => decodeURIComponent(part));
+    if (parts[0] === "users" && parts[1]) {
+        if (parts[2] === "lists" && parts[3]) return { kind: "list", user: parts[1], list: parts[3] };
+        if (["watchlist", "collection", "favorites"].includes(parts[2])) return { kind: parts[2], user: parts[1] };
+    }
+    if (parts.length === 2) return { kind: "list", user: parts[0], list: parts[1] };
+    if (parts.length === 3 && parts[1] === "lists") return { kind: "list", user: parts[0], list: parts[2] };
+
+    return null;
+}
+
+function traktItemsPath(catalog, type) {
+    const traktType = type === "series" ? "shows" : "movies";
+    if (catalog.kind === "list") return `/users/${encodeURIComponent(catalog.user)}/lists/${encodeURIComponent(catalog.list)}/items/${traktType}?extended=full`;
+    if (catalog.kind === "watchlist") return `/users/${encodeURIComponent(catalog.user)}/watchlist/${traktType}?extended=full`;
+    if (catalog.kind === "collection") return `/users/${encodeURIComponent(catalog.user)}/collection/${traktType}?extended=full`;
+    if (catalog.kind === "favorites") return `/users/${encodeURIComponent(catalog.user)}/favorites/${traktType}?extended=full`;
+    return null;
+}
+
+async function fetchTraktTmdbSeeds(input, type) {
+    const catalog = parseTraktCatalog(input);
+    if (!catalog) throw new Error("Unsupported Trakt catalog. Use a public Trakt list URL, username/list-slug, users/username/watchlist, users/username/collection, or users/username/favorites.");
+
+    const pathname = traktItemsPath(catalog, type);
+    const items = await fetchTraktJson(pathname);
+    const mediaKey = type === "series" ? "show" : "movie";
+    const seen = new Set();
+
+    return (Array.isArray(items) ? items : [])
+        .map(item => item[mediaKey] || item)
+        .filter(item => item?.ids?.tmdb && !seen.has(item.ids.tmdb) && seen.add(item.ids.tmdb))
+        .map(item => ({
+            id: item.ids.tmdb,
+            title: item.title,
+            name: item.title,
+            overview: item.overview || "",
+            _traktYear: item.year,
+            _traktSlug: item.ids.slug
+        }));
 }
 
 let genreMap = {};
@@ -435,28 +525,35 @@ builder.defineCatalogHandler(async (args) => {
         portraitRanked: config.portraitRanked !== undefined ? config.portraitRanked !== "false" : config.ranked !== "false",
         portraitPosterLang: config.portraitPosterLang || config.posterLang || "en",
         digitalOnly: config.digitalOnly !== "false",
-        listLang: config.listLang || "en"
+        listLang: config.listLang || "en",
+        traktCatalog: normalizeTraktCatalogInput(config.traktCatalog)
     };
 
     const tmdbType = type === 'series' ? 'tv' : 'movie';
     let finalItems = [];
     let seenIds = new Set();
     let page = 1;
-    const maxPages = 10;
+    const useTraktCatalog = !!userConfig.traktCatalog;
+    const maxPages = useTraktCatalog ? 1 : 10;
     const TODAY = new Date();
 
     while (finalItems.length < 10 && page <= maxPages) {
-        const data = await fetchTmdbJson(`https://api.themoviedb.org/3/trending/${tmdbType}/day?api_key=${TMDB_API_KEY}&page=${page}`);
+        const data = useTraktCatalog
+            ? { results: await fetchTraktTmdbSeeds(userConfig.traktCatalog, type) }
+            : await fetchTmdbJson(`https://api.themoviedb.org/3/trending/${tmdbType}/day?api_key=${TMDB_API_KEY}&page=${page}`);
         if (!data.results || data.results.length === 0) break;
 
         let pageItems = data.results.filter(item => {
             if (seenIds.has(item.id)) return false;
 
-            const langs = userConfig.listLang.split(',');
-            let keep = false;
-            if (langs.includes('all')) keep = true;
-            else if (langs.includes('non-en') && item.original_language !== 'en') keep = true;
-            else if (langs.includes(item.original_language)) keep = true;
+            let keep = true;
+            if (!useTraktCatalog) {
+                const langs = userConfig.listLang.split(',');
+                keep = false;
+                if (langs.includes('all')) keep = true;
+                else if (langs.includes('non-en') && item.original_language !== 'en') keep = true;
+                else if (langs.includes(item.original_language)) keep = true;
+            }
 
             if (!keep) return false;
 
@@ -470,7 +567,19 @@ builder.defineCatalogHandler(async (args) => {
                     return await fetchTmdbJson(`https://api.themoviedb.org/3/${tmdbType}/${item.id}?api_key=${TMDB_API_KEY}&append_to_response=external_ids`);
                 } catch { return null; }
             }));
-            pageItems.forEach((item, index) => item._details = detailsData[index]);
+            pageItems.forEach((item, index) => {
+                const details = detailsData[index];
+                item._details = details;
+                if (details) {
+                    item.title = item.title || details.title;
+                    item.name = item.name || details.name;
+                    item.overview = item.overview || details.overview;
+                    item.poster_path = item.poster_path || details.poster_path;
+                    item.backdrop_path = item.backdrop_path || details.backdrop_path;
+                    item.genre_ids = item.genre_ids || details.genres?.map(g => g.id) || [];
+                    item.original_language = item.original_language || details.original_language;
+                }
+            });
         }
 
         if (type === 'movie' && pageItems.length > 0) {
@@ -1141,6 +1250,8 @@ const configUI = `<!DOCTYPE html>
 
             <div class="form-group">
                 <h3 style="color: #e0e0e0; margin: 0 0 15px 0; font-size: 16px; border-bottom: 1px solid #333; padding-bottom: 8px;">Catalog Filters</h3>
+                <label>Trakt Catalog</label>
+                <input type="text" id="traktCatalog" placeholder="Public Trakt URL or username/list-slug" oninput="updateLink()" style="width: 100%; padding: 12px; border-radius: 6px; border: 1px solid #333; background: #2a2a2a; color: #fff; font-size: 14px; outline: none; box-sizing: border-box; margin-bottom: 15px;">
                 <label>Language</label>
                 <div class="multi-select" id="listLangSelect">
                     <div class="select-box" onclick="toggleMultiSelect()">English</div>
@@ -1257,7 +1368,8 @@ const configUI = `<!DOCTYPE html>
                   plo = document.getElementById('portraitLogos').checked,
                   pr_chk = document.getElementById('portraitRanked').checked,
                   plang = document.getElementById('posterLang').value,
-                  d = document.getElementById('digitalOnly').checked;
+                  d = document.getElementById('digitalOnly').checked,
+                  trakt = document.getElementById('traktCatalog').value.trim();
                   
             const checkedLangs = Array.from(document.querySelectorAll('#listLangOptions input:checked'));
             const l = checkedLangs.map(opt => opt.value).join(',') || 'all';
@@ -1267,7 +1379,8 @@ const configUI = `<!DOCTYPE html>
             else if (checkedLangs.length <= 2) box.textContent = checkedLangs.map(cb => cb.parentElement.textContent.trim()).join(', ');
             else box.textContent = checkedLangs.length + ' Languages Selected';
                   
-            const c = "landscapeTags=" + lt + "|landscapeLogos=" + llo + "|landscapeRanked=" + lr + "|portraitTags=" + pt + "|portraitLogos=" + plo + "|portraitRanked=" + pr_chk + "|posterLang=" + plang + "|digitalOnly=" + d + "|listLang=" + l;
+            const traktPart = trakt ? "|traktCatalog=" + encodeURIComponent(trakt) : "";
+            const c = "landscapeTags=" + lt + "|landscapeLogos=" + llo + "|landscapeRanked=" + lr + "|portraitTags=" + pt + "|portraitLogos=" + plo + "|portraitRanked=" + pr_chk + "|posterLang=" + plang + "|digitalOnly=" + d + "|listLang=" + l + traktPart;
             const h = window.location.host, pr = window.location.protocol;
             
             document.getElementById('manifestUrl').value = pr + "//" + h + "/" + c + "/manifest.json";
