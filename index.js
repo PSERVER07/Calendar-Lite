@@ -1033,12 +1033,15 @@ builder.defineCatalogHandler(async (args) => {
                     }
 
                     if (!itemTag) {
-                        if (firstAir && firstAir <= TODAY && diffDays(TODAY, firstAir) <= 3) {
+                        const nextAirDate = nextEp?.air_date ? parseLocal(nextEp.air_date) : null;
+                        const hasNextEpisodeTag = nextAirDate && nextAirDate > TODAY && diffDays(nextAirDate, TODAY) <= 7 && lastAir && diffDays(TODAY, lastAir) >= 4;
+
+                        if (hasNextEpisodeTag) {
+                            itemTag = `next_episode_date_${formatFutureDate(nextAirDate).replace(' ', '_')}`;
+                        } else if (firstAir && firstAir <= TODAY && diffDays(TODAY, firstAir) <= 3) {
                             itemTag = "new_series";
                         } else if (seasonAir && seasonAir <= TODAY && diffDays(TODAY, seasonAir) <= 3) {
                             itemTag = "new_season";
-                        } else if (nextEp?.air_date && parseLocal(nextEp.air_date) > TODAY && diffDays(parseLocal(nextEp.air_date), TODAY) <= 7 && lastAir && diffDays(TODAY, lastAir) >= 4) {
-                            itemTag = `next_episode_date_${formatFutureDate(parseLocal(nextEp.air_date)).replace(' ', '_')}`;
                         } else if (isFinale && lastAir && lastAir <= TODAY && lastAir >= CURRENT_MONTH_START && diffDays(TODAY, lastAir) <= 30) {
                             if (tvData.status === "Ended" || tvData.status === "Canceled") {
                                 itemTag = "series_finale";
