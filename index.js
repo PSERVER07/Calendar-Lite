@@ -24,9 +24,11 @@ const ADDON_URL = cleanEnvValue(process.env.ADDON_URL);
 const imageCache = new Map();
 const tmdbCache = new Map();
 const traktCache = new Map();
+const tvmazeCache = new Map();
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const TMDB_CACHE_TTL_MS = 10 * 60 * 1000;
 const TRAKT_CACHE_TTL_MS = 10 * 60 * 1000;
+const TVMAZE_CACHE_TTL_MS = 10 * 60 * 1000;
 const CACHE_DIR = path.join(__dirname, "image-cache");
 
 if (!fs.existsSync(CACHE_DIR)) {
@@ -58,6 +60,26 @@ async function fetchTmdbJson(url) {
     if (tmdbCache.size > 1000) {
         const oldestKey = tmdbCache.keys().next().value;
         tmdbCache.delete(oldestKey);
+    }
+    return data;
+}
+
+async function fetchTvmazeJson(url) {
+    const cached = tvmazeCache.get(url);
+    if (cached && Date.now() < cached.expires) {
+        return cached.data;
+    }
+
+    const res = await fetch(url);
+    if (res.status === 404) return null;
+    if (!res.ok) {
+        throw new Error(`TVMaze fetch failed: ${res.status} ${res.statusText}`);
+    }
+    const data = await res.json();
+    tvmazeCache.set(url, { data, expires: Date.now() + TVMAZE_CACHE_TTL_MS });
+    if (tvmazeCache.size > 300) {
+        const oldestKey = tvmazeCache.keys().next().value;
+        tvmazeCache.delete(oldestKey);
     }
     return data;
 }
@@ -279,6 +301,132 @@ async function fetchMovieReleaseDates(movie) {
             earliestDigital: await fetchTraktDigitalReleaseDate(movie._traktId)
         };
     }
+}
+
+function normalizeEpisodeDate(value) {
+    return value ? releaseDateOnly(value) : null;
+}
+
+function tmdbEpisodeFields(episode) {
+    if (!episode) return null;
+    return {
+        air_date: episode.air_date,
+        season_number: episode.season_number,
+        episode_number: episode.episode_number,
+        episode_type: episode.episode_type
+    };
+}
+
+function tvmazeEpisodeFields(episode) {
+    if (!episode) return null;
+    return {
+        air_date: episode.airdate,
+        season_number: episode.season,
+        episode_number: episode.number,
+        episode_type: episode.type === "finale" ? "finale" : null
+    };
+}
+
+function traktEpisodeFields(episode) {
+    if (!episode) return null;
+    return {
+        air_date: episode.first_aired,
+        season_number: episode.season,
+        episode_number: episode.number,
+        episode_type: episode.episode_type || null
+    };
+}
+
+function deriveEpisodeTimeline(episodes, today) {
+    const datedEpisodes = (episodes || [])
+        .map(episode => ({ ...episode, _airDate: normalizeEpisodeDate(episode.air_date) }))
+        .filter(episode => episode._airDate)
+        .sort((a, b) => a._airDate - b._airDate || (a.season_number || 0) - (b.season_number || 0) || (a.episode_number || 0) - (b.episode_number || 0));
+
+    if (datedEpisodes.length === 0) return null;
+
+    const airedEpisodes = datedEpisodes.filter(episode => episode._airDate <= today);
+    const futureEpisodes = datedEpisodes.filter(episode => episode._airDate > today);
+    const firstAiredEpisode = datedEpisodes.find(episode => (episode.season_number || 0) > 0);
+    const latestAiredSeasonNumber = Math.max(0, ...airedEpisodes.map(episode => episode.season_number || 0));
+    const latestSeasonPremiere = latestAiredSeasonNumber > 0
+        ? airedEpisodes.find(episode => episode.season_number === latestAiredSeasonNumber && episode.episode_number === 1)
+            || airedEpisodes.find(episode => episode.season_number === latestAiredSeasonNumber)
+        : null;
+
+    return {
+        lastEp: airedEpisodes[airedEpisodes.length - 1] || null,
+        nextEp: futureEpisodes[0] || null,
+        firstAir: firstAiredEpisode?._airDate || null,
+        seasonAir: latestSeasonPremiere?._airDate || null,
+        source: "episodes"
+    };
+}
+
+async function fetchTvmazeEpisodeTimeline(tvData, today) {
+    const externalIds = tvData.external_ids || {};
+    let lookupUrl = null;
+    if (externalIds.tvdb_id) {
+        lookupUrl = `https://api.tvmaze.com/lookup/shows?thetvdb=${encodeURIComponent(externalIds.tvdb_id)}`;
+    } else if (externalIds.imdb_id) {
+        lookupUrl = `https://api.tvmaze.com/lookup/shows?imdb=${encodeURIComponent(externalIds.imdb_id)}`;
+    }
+    if (!lookupUrl) return null;
+
+    try {
+        const show = await fetchTvmazeJson(lookupUrl);
+        if (!show?.id) return null;
+        const episodes = await fetchTvmazeJson(`https://api.tvmaze.com/shows/${encodeURIComponent(show.id)}/episodes`);
+        const timeline = deriveEpisodeTimeline(Array.isArray(episodes) ? episodes.map(tvmazeEpisodeFields) : [], today);
+        return timeline ? { ...timeline, source: "tvmaze" } : null;
+    } catch {
+        return null;
+    }
+}
+
+function tmdbEpisodeTimeline(tvData, today) {
+    const timeline = deriveEpisodeTimeline([
+        tmdbEpisodeFields(tvData.last_episode_to_air),
+        tmdbEpisodeFields(tvData.next_episode_to_air)
+    ].filter(Boolean), today);
+
+    return {
+        lastEp: timeline?.lastEp || tmdbEpisodeFields(tvData.last_episode_to_air),
+        nextEp: timeline?.nextEp || tmdbEpisodeFields(tvData.next_episode_to_air),
+        firstAir: normalizeEpisodeDate(tvData.first_air_date),
+        seasonAir: null,
+        source: "tmdb"
+    };
+}
+
+async function fetchTraktEpisodeTimeline(traktId, today) {
+    if (!traktId) return null;
+    try {
+        const start = new Date(today);
+        start.setDate(start.getDate() - 30);
+        const days = 75;
+        const yyyy = start.getFullYear();
+        const mm = String(start.getMonth() + 1).padStart(2, "0");
+        const dd = String(start.getDate()).padStart(2, "0");
+        const calendar = await fetchTraktJson(`/calendars/all/shows/${yyyy}-${mm}-${dd}/${days}?extended=full`);
+        const episodes = (Array.isArray(calendar) ? calendar : [])
+            .filter(item => Number(item.show?.ids?.trakt) === Number(traktId))
+            .map(item => traktEpisodeFields(item.episode));
+        const timeline = deriveEpisodeTimeline(episodes, today);
+        return timeline ? { ...timeline, source: "trakt" } : null;
+    } catch {
+        return null;
+    }
+}
+
+async function fetchSeriesEpisodeTimeline(tvData, traktId, today) {
+    const tvmazeTimeline = await fetchTvmazeEpisodeTimeline(tvData, today);
+    if (tvmazeTimeline?.lastEp || tvmazeTimeline?.nextEp) return tvmazeTimeline;
+
+    const tmdbTimeline = tmdbEpisodeTimeline(tvData, today);
+    if (tmdbTimeline?.lastEp || tmdbTimeline?.nextEp) return tmdbTimeline;
+
+    return await fetchTraktEpisodeTimeline(traktId, today);
 }
 
 let genreMap = {};
@@ -820,13 +968,15 @@ builder.defineCatalogHandler(async (args) => {
                     } catch { return null; }
                 }));
 
-                pageItems.forEach((item, index) => {
+                for (let index = 0; index < pageItems.length; index++) {
+                    const item = pageItems[index];
                     const tvData = tvDetailsData[index];
-                    if (!tvData) return;
+                    if (!tvData) continue;
                     item._details = tvData; // Ensure details are attached for later use
 
-                    let lastEp = tvData.last_episode_to_air;
-                    let nextEp = tvData.next_episode_to_air;
+                    const episodeTimeline = await fetchSeriesEpisodeTimeline(tvData, item._traktId, TODAY);
+                    let lastEp = episodeTimeline?.lastEp || tmdbEpisodeFields(tvData.last_episode_to_air);
+                    let nextEp = episodeTimeline?.nextEp || tmdbEpisodeFields(tvData.next_episode_to_air);
 
                     if (nextEp && nextEp.air_date) {
                         const nextAirDate = parseLocal(nextEp.air_date);
@@ -846,8 +996,10 @@ builder.defineCatalogHandler(async (args) => {
                         }
                     }
 
-                    const firstAir = parseLocal(tvData.first_air_date);
+                    const firstAir = episodeTimeline?.firstAir || parseLocal(tvData.first_air_date);
                     const lastAir = lastEp?.air_date ? parseLocal(lastEp.air_date) : parseLocal(tvData.last_air_date);
+                    const latestSeason = tvData.seasons?.slice().reverse().find(s => s.season_number > 0);
+                    const seasonAir = episodeTimeline?.seasonAir || (latestSeason?.air_date ? parseLocal(latestSeason.air_date) : null);
 
                     let itemTag = null, futureDate = null;
 
@@ -881,9 +1033,6 @@ builder.defineCatalogHandler(async (args) => {
                     }
 
                     if (!itemTag) {
-                        const latestSeason = tvData.seasons?.slice().reverse().find(s => s.season_number > 0);
-                        const seasonAir = latestSeason?.air_date ? parseLocal(latestSeason.air_date) : null;
-
                         if (firstAir && firstAir <= TODAY && diffDays(TODAY, firstAir) <= 3) {
                             itemTag = "new_series";
                         } else if (seasonAir && seasonAir <= TODAY && diffDays(TODAY, seasonAir) <= 3) {
@@ -905,7 +1054,7 @@ builder.defineCatalogHandler(async (args) => {
                     }
 
                     item._tag = itemTag || "none";
-                });
+                }
             } else {
                 pageItems.forEach(item => item._tag = "none");
             }
