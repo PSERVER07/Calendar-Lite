@@ -205,9 +205,80 @@ async function fetchTraktTmdbSeeds(input, type) {
             title: item.title,
             name: item.title,
             overview: item.overview || "",
+            _traktId: item.ids.trakt,
             _traktYear: item.year,
             _traktSlug: item.ids.slug
         }));
+}
+
+function releaseDateOnly(value) {
+    if (!value) return null;
+    const datePart = String(value).slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(datePart)) return null;
+    return parseLocal(datePart);
+}
+
+function earliestReleaseDateByRegion(releaseBlocks, regions, isDigitalRelease) {
+    for (const region of regions) {
+        const dates = [];
+        for (const block of releaseBlocks || []) {
+            const blockRegion = (block.iso_3166_1 || block.country || "").toUpperCase();
+            if (blockRegion !== region) continue;
+
+            const releases = block.release_dates || [block];
+            for (const release of releases) {
+                if (!isDigitalRelease(release)) continue;
+                const date = releaseDateOnly(release.release_date);
+                if (date) dates.push(date);
+            }
+        }
+        if (dates.length > 0) return dates.sort((a, b) => a - b)[0];
+    }
+    return null;
+}
+
+async function fetchTmdbMovieReleaseDates(movieId) {
+    const releaseData = await fetchTmdbJson(`https://api.themoviedb.org/3/movie/${movieId}/release_dates?api_key=${TMDB_API_KEY}`);
+    const releaseBlocks = releaseData.results || [];
+
+    return {
+        earliestTheatrical: earliestReleaseDateByRegion(releaseBlocks, ["US"], release => [1, 2, 3].includes(release.type))
+            || earliestReleaseDateByRegion(releaseBlocks, releaseBlocks.map(block => (block.iso_3166_1 || "").toUpperCase()).filter(Boolean), release => [1, 2, 3].includes(release.type)),
+        earliestDigital: earliestReleaseDateByRegion(releaseBlocks, ["US", "GB"], release => release.type === 4),
+        earliestPhysical: earliestReleaseDateByRegion(releaseBlocks, ["US"], release => release.type === 5)
+            || earliestReleaseDateByRegion(releaseBlocks, releaseBlocks.map(block => (block.iso_3166_1 || "").toUpperCase()).filter(Boolean), release => release.type === 5)
+    };
+}
+
+async function fetchTraktDigitalReleaseDate(traktId) {
+    if (!traktId) return null;
+    try {
+        const releases = await fetchTraktJson(`/movies/${encodeURIComponent(traktId)}/releases`);
+        if (!Array.isArray(releases)) return null;
+        return earliestReleaseDateByRegion(releases, ["US", "GB"], release => {
+            const releaseType = release.release_type;
+            return (typeof releaseType === "string" && releaseType.toLowerCase() === "digital") || releaseType === 4;
+        });
+    } catch {
+        return null;
+    }
+}
+
+async function fetchMovieReleaseDates(movie) {
+    const fallbackDates = { earliestTheatrical: null, earliestDigital: null, earliestPhysical: null };
+    try {
+        const dates = await fetchTmdbMovieReleaseDates(movie.id);
+        if (dates.earliestDigital) return dates;
+        return {
+            ...dates,
+            earliestDigital: await fetchTraktDigitalReleaseDate(movie._traktId)
+        };
+    } catch {
+        return {
+            ...fallbackDates,
+            earliestDigital: await fetchTraktDigitalReleaseDate(movie._traktId)
+        };
+    }
 }
 
 let genreMap = {};
@@ -665,35 +736,7 @@ builder.defineCatalogHandler(async (args) => {
 
         if (type === 'movie' && pageItems.length > 0) {
             const releaseDatesData = await Promise.all(pageItems.map(async (movie) => {
-                try {
-                    const releaseData = await fetchTmdbJson(`https://api.themoviedb.org/3/movie/${movie.id}/release_dates?api_key=${TMDB_API_KEY}`);
-
-                    let earliestTheatrical = null;
-                    let earliestDigital = null;
-                    let earliestPhysical = null;
-
-                    if (releaseData.results) {
-                        const usData = releaseData.results.find(c => c.iso_3166_1 === 'US');
-                        const globalDates = releaseData.results.flatMap(c => c.release_dates);
-
-                        const findEarliest = (releases, types) => {
-                            let earliest = null;
-                            for (const r of releases) {
-                                if (types.includes(r.type)) {
-                                    const d = parseLocal(r.release_date.substring(0, 10));
-                                    if (!earliest || d < earliest) earliest = d;
-                                }
-                            }
-                            return earliest;
-                        };
-
-                        const usReleases = usData ? usData.release_dates : [];
-                        earliestTheatrical = findEarliest(usReleases, [1, 2, 3]) || findEarliest(globalDates, [1, 2, 3]);
-                        earliestDigital = findEarliest(usReleases, [4]) || findEarliest(globalDates, [4]);
-                        earliestPhysical = findEarliest(usReleases, [5]) || findEarliest(globalDates, [5]);
-                    }
-                    return { earliestTheatrical, earliestDigital, earliestPhysical };
-                } catch { return { earliestTheatrical: null, earliestDigital: null, earliestPhysical: null }; }
+                return fetchMovieReleaseDates(movie);
             }));
 
             pageItems.forEach((item, index) => {
