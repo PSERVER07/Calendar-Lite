@@ -17,6 +17,7 @@ app.use((req, res, next) => {
 });
 
 const TMDB_API_KEY = cleanEnvValue(process.env.TMDB_API_KEY);
+const TMDB_READ_ACCESS_TOKEN = cleanEnvValue(process.env.TMDB_READ_ACCESS_TOKEN).replace(/^Bearer\s+/i, "");
 const TRAKT_CLIENT_ID = cleanEnvValue(process.env.TRAKT_CLIENT_ID);
 const TRAKT_ACCESS_TOKEN = cleanEnvValue(process.env.TRAKT_ACCESS_TOKEN).replace(/^Bearer\s+/i, "");
 const ADDON_URL = cleanEnvValue(process.env.ADDON_URL);
@@ -46,18 +47,25 @@ function requestBaseUrl(req) {
     return `${protocol.split(",")[0]}://${req.get("host")}`;
 }
 
-async function fetchTmdbJson(url) {
-    const cached = tmdbCache.get(url);
+async function fetchTmdbJson(url, options = {}) {
+    const useBearer = options.useBearer === true && !!TMDB_READ_ACCESS_TOKEN;
+    const cacheKey = `${url}|tmdbBearer:${useBearer ? "yes" : "no"}`;
+    const cached = tmdbCache.get(cacheKey);
     if (cached && Date.now() < cached.expires) {
         return cached.data;
     }
 
-    const res = await fetch(url);
+    const headers = { "Accept": "application/json" };
+    if (useBearer) headers.Authorization = `Bearer ${TMDB_READ_ACCESS_TOKEN}`;
+
+    const res = await fetch(url, { headers });
     if (!res.ok) {
-        throw new Error(`TMDB fetch failed: ${res.status} ${res.statusText}`);
+        const error = new Error(`TMDB fetch failed: ${res.status} ${res.statusText}`);
+        error.status = res.status;
+        throw error;
     }
     const data = await res.json();
-    tmdbCache.set(url, { data, expires: Date.now() + TMDB_CACHE_TTL_MS });
+    tmdbCache.set(cacheKey, { data, expires: Date.now() + TMDB_CACHE_TTL_MS });
     if (tmdbCache.size > 1000) {
         const oldestKey = tmdbCache.keys().next().value;
         tmdbCache.delete(oldestKey);
@@ -169,6 +177,55 @@ function normalizeTraktCatalogInput(input) {
     return (input || "").trim().replace(/^@/, "");
 }
 
+function extractTmdbListId(value) {
+    const match = String(value || "").match(/^(\d+)/);
+    return match ? match[1] : "";
+}
+
+function parseTmdbListCatalog(input) {
+    const raw = normalizeTraktCatalogInput(input);
+    if (!raw) return null;
+
+    if (/^tmdb:/i.test(raw)) {
+        const id = extractTmdbListId(raw.replace(/^tmdb:/i, ""));
+        return id ? { source: "tmdb", kind: "list", listId: id } : null;
+    }
+
+    if (/^tmdb\/list\//i.test(raw)) {
+        const id = extractTmdbListId(raw.split("/")[2]);
+        return id ? { source: "tmdb", kind: "list", listId: id } : null;
+    }
+
+    if (/^tmdb\//i.test(raw)) {
+        const id = extractTmdbListId(raw.split("/")[1]);
+        return id ? { source: "tmdb", kind: "list", listId: id } : null;
+    }
+
+    let parsedUrl = null;
+    try {
+        parsedUrl = new URL(raw);
+    } catch {
+        parsedUrl = null;
+    }
+
+    if (parsedUrl && /(^|\.)themoviedb\.org$/i.test(parsedUrl.hostname)) {
+        const parts = parsedUrl.pathname.split("/").filter(Boolean).map(part => decodeURIComponent(part));
+        const listIndex = parts.findIndex(part => part.toLowerCase() === "list");
+        if (listIndex >= 0 && parts[listIndex + 1]) {
+            const id = extractTmdbListId(parts[listIndex + 1]);
+            return id ? { source: "tmdb", kind: "list", listId: id } : null;
+        }
+        return null;
+    }
+
+    if (/^(?:list\/)?\d+(?:[-_][A-Za-z0-9_-]+)?$/i.test(raw)) {
+        const id = extractTmdbListId(raw.replace(/^list\//i, ""));
+        return id ? { source: "tmdb", kind: "list", listId: id } : null;
+    }
+
+    return null;
+}
+
 function parseTraktCatalog(input) {
     const raw = normalizeTraktCatalogInput(input);
     if (!raw) return null;
@@ -188,6 +245,10 @@ function parseTraktCatalog(input) {
     if (parts.length === 3 && parts[1] === "lists") return { kind: "list", user: parts[0], list: parts[2] };
 
     return null;
+}
+
+function parsePublicCatalog(input) {
+    return parseTmdbListCatalog(input) || parseTraktCatalog(input);
 }
 
 async function fetchTraktListItems(catalog, type) {
@@ -227,7 +288,7 @@ async function fetchTraktListItems(catalog, type) {
 
 async function fetchTraktTmdbSeeds(input, type) {
     const catalog = parseTraktCatalog(input);
-    if (!catalog) throw new Error("Unsupported Trakt catalog. Use a public Trakt list URL, users/username/lists/list-slug, or username/list-slug.");
+    if (!catalog) throw new Error("Unsupported catalog. Use a public Trakt list URL, public TMDB list URL, TMDB list ID, or username/list-slug.");
 
     const items = await fetchTraktListItems(catalog, type);
     const mediaKey = type === "series" ? "show" : "movie";
@@ -246,6 +307,71 @@ async function fetchTraktTmdbSeeds(input, type) {
             _traktYear: item.year,
             _traktSlug: item.ids.slug
         }));
+}
+
+async function fetchTmdbListPage(catalog, page) {
+    if (TMDB_READ_ACCESS_TOKEN) {
+        try {
+            return await fetchTmdbJson(
+                `https://api.themoviedb.org/4/list/${encodeURIComponent(catalog.listId)}?page=${page}`,
+                { useBearer: true }
+            );
+        } catch (error) {
+            if (!TMDB_API_KEY || ![401, 403, 404].includes(error.status)) throw error;
+        }
+    }
+
+    if (!TMDB_API_KEY) {
+        throw new Error("TMDB_API_KEY or TMDB_READ_ACCESS_TOKEN is required for TMDB public lists.");
+    }
+
+    return fetchTmdbJson(`https://api.themoviedb.org/3/list/${encodeURIComponent(catalog.listId)}?api_key=${TMDB_API_KEY}&page=${page}`);
+}
+
+async function fetchTmdbListItems(catalog, type) {
+    const targetMediaType = type === "series" ? "tv" : "movie";
+    const seen = new Set();
+    const out = [];
+    const maxPages = 20;
+    let page = 1;
+    let totalPages = 1;
+
+    do {
+        const data = await fetchTmdbListPage(catalog, page);
+        const items = data.results || data.items || [];
+
+        for (const item of Array.isArray(items) ? items : []) {
+            const mediaType = item.media_type || (item.first_air_date || item.name ? "tv" : "movie");
+            if (mediaType !== targetMediaType || !item.id || seen.has(item.id)) continue;
+            seen.add(item.id);
+            out.push({
+                id: item.id,
+                title: item.title || item.name,
+                name: item.name || item.title,
+                overview: item.overview || "",
+                poster_path: item.poster_path,
+                backdrop_path: item.backdrop_path,
+                genre_ids: item.genre_ids || [],
+                original_language: item.original_language,
+                release_date: item.release_date,
+                first_air_date: item.first_air_date
+            });
+        }
+
+        totalPages = Math.max(1, Number(data.total_pages || 1));
+        page += 1;
+    } while (page <= totalPages && page <= maxPages);
+
+    return out;
+}
+
+async function fetchCatalogTmdbSeeds(input, type) {
+    const catalog = parsePublicCatalog(input);
+    if (!catalog) throw new Error("Unsupported catalog. Use a public Trakt list URL, public TMDB list URL, TMDB list ID, or username/list-slug.");
+
+    return catalog.source === "tmdb"
+        ? fetchTmdbListItems(catalog, type)
+        : fetchTraktTmdbSeeds(input, type);
 }
 
 function releaseDateOnly(value) {
@@ -538,7 +664,7 @@ const manifest = {
     id: "com.pserver.calendar-lite",
     version: "1.12.2",
     name: "Coming Soon",
-    description: "Customizable Stremio catalogs for upcoming and recently released content with optional graphic tags and Trakt lists.",
+    description: "Customizable Stremio catalogs for upcoming and recently released content with optional graphic tags and public Trakt or TMDB lists.",
     behaviorHints: { configurable: true, configurationRequired: true },
     resources: ["catalog"],
     types: ["movie", "series"],
@@ -926,7 +1052,7 @@ builder.defineCatalogHandler(async (args) => {
     };
 
     const tmdbType = type === 'series' ? 'tv' : 'movie';
-    const activeTraktCatalog = id === "calendar_lite_theaters"
+    const activePublicCatalog = id === "calendar_lite_theaters"
         ? userConfig.traktTheatersCatalog
         : type === 'series'
             ? (userConfig.traktShowsCatalog || userConfig.traktCatalog)
@@ -934,8 +1060,8 @@ builder.defineCatalogHandler(async (args) => {
     let finalItems = [];
     let seenIds = new Set();
     let page = 1;
-    const useTraktCatalog = !!activeTraktCatalog;
-    if (!useTraktCatalog) {
+    const usePublicCatalog = !!activePublicCatalog;
+    if (!usePublicCatalog) {
         return { metas: [] };
     }
 
@@ -945,14 +1071,14 @@ builder.defineCatalogHandler(async (args) => {
     const CURRENT_MONTH_START = new Date(TODAY.getFullYear(), TODAY.getMonth(), 1);
 
     while (finalItems.length < catalogLimit && page <= maxPages) {
-        const data = { results: await fetchTraktTmdbSeeds(activeTraktCatalog, type) };
+        const data = { results: await fetchCatalogTmdbSeeds(activePublicCatalog, type) };
         if (!data.results || data.results.length === 0) break;
 
         let pageItems = data.results.filter(item => {
             if (seenIds.has(item.id)) return false;
 
             let keep = true;
-            if (!useTraktCatalog) {
+            if (!usePublicCatalog) {
                 const langs = userConfig.listLang.split(',');
                 keep = false;
                 if (langs.includes('all')) keep = true;
@@ -999,7 +1125,7 @@ builder.defineCatalogHandler(async (args) => {
                 item._earliestPhysical = dates.earliestPhysical;
             });
 
-            if (userConfig.digitalOnly && !useTraktCatalog) {
+            if (userConfig.digitalOnly && !usePublicCatalog) {
                 pageItems = pageItems.filter(item => {
                     // Prevent TMDB metadata errors: if a future digital release exists,
                     // it is not truly out yet, regardless of erroneous past physical dates.
@@ -1178,7 +1304,7 @@ builder.defineCatalogHandler(async (args) => {
         page++;
     }
 
-    const metas = (useTraktCatalog ? finalItems : finalItems.slice(0, 10)).map((item, index) => {
+    const metas = (usePublicCatalog ? finalItems : finalItems.slice(0, 10)).map((item, index) => {
         const rank = index + 1;
         let finalPosterUrl = item.poster_path ? `https://image.tmdb.org/t/p/w500${item.poster_path}` : null;
         const imdbId = item._details?.imdb_id || item._details?.external_ids?.imdb_id;
@@ -1657,9 +1783,9 @@ const configUI = `<!DOCTYPE html>
 
             <div class="form-group">
                 <h3 style="color: #e0e0e0; margin: 0 0 15px 0; font-size: 16px; border-bottom: 1px solid #333; padding-bottom: 8px;">Catalog Filters</h3>
-                <label>Add Trakt Catalog</label>
+                <label>Add Public Catalog</label>
                 <div class="trakt-add-row">
-                    <input type="text" id="traktCatalogInput" placeholder="Public Trakt URL or username/list-slug">
+                    <input type="text" id="traktCatalogInput" placeholder="Public Trakt/TMDB list URL, TMDB list ID, or username/list-slug">
                     <div class="trakt-add-buttons">
                         <button type="button" onclick="assignTraktCatalog('auto')">Auto</button>
                         <button type="button" onclick="assignTraktCatalog('series')">Shows</button>
@@ -1742,7 +1868,7 @@ const configUI = `<!DOCTYPE html>
             </div>
             <div class="preview-section" style="margin-top: 20px;">
                 <h3 class="row-title" id="theaters-title">In Theaters</h3>
-                <div id="theaters-preview" class="horizontal-scroll"><div class="loading">Add a Trakt in-theaters catalog to preview theatrical releases</div></div>
+                <div id="theaters-preview" class="horizontal-scroll"><div class="loading">Add an in-theaters catalog to preview theatrical releases</div></div>
             </div>
         </div>
     </div>
@@ -1757,15 +1883,24 @@ const configUI = `<!DOCTYPE html>
             if (!raw) return '';
 
             let pathname = raw;
+            let isTmdb = false;
             try {
-                pathname = new URL(raw).pathname;
+                const parsed = new URL(raw);
+                pathname = parsed.pathname;
+                isTmdb = /(^|\.)themoviedb\.org$/i.test(parsed.hostname);
             } catch {
                 pathname = raw.startsWith('/') ? raw : '/' + raw;
+                isTmdb = /^tmdb[:/]/i.test(raw) || /^(?:list\/)?\d+(?:[-_][A-Za-z0-9_-]+)?$/i.test(raw);
             }
 
             const parts = pathname.split('/').filter(Boolean).map(part => decodeURIComponent(part));
             let name = '';
-            if (parts[0] === 'users' && parts[1]) {
+            if (isTmdb) {
+                const listIndex = parts.findIndex(part => part.toLowerCase() === 'list');
+                const idPart = listIndex >= 0 ? parts[listIndex + 1] : parts.find(part => /^\d+/.test(part));
+                const slugPart = (idPart || '').replace(/^\d+[-_]?/, '');
+                name = slugPart || (idPart ? 'TMDB List ' + (idPart.match(/^\d+/) || [''])[0] : '');
+            } else if (parts[0] === 'users' && parts[1]) {
                 if (parts[2] === 'lists' && parts[3]) name = parts[3];
                 else if (parts[2]) name = parts[2];
             } else if (parts.length === 2) {
@@ -1895,15 +2030,15 @@ const configUI = `<!DOCTYPE html>
                 currentShows = [];
                 currentMovies = [];
                 currentTheaters = [];
-                showsContainer.innerHTML = '<div class="loading">Add a Trakt shows catalog to preview shows</div>';
-                moviesContainer.innerHTML = '<div class="loading">Add a Trakt movies catalog to preview movies</div>';
-                theatersContainer.innerHTML = '<div class="loading">Add a Trakt in-theaters catalog to preview theatrical releases</div>';
+                showsContainer.innerHTML = '<div class="loading">Add a shows catalog to preview shows</div>';
+                moviesContainer.innerHTML = '<div class="loading">Add a movies catalog to preview movies</div>';
+                theatersContainer.innerHTML = '<div class="loading">Add an in-theaters catalog to preview theatrical releases</div>';
                 return;
             }
-            
-            showsContainer.innerHTML = traktShows ? '<div class="loading">Loading shows...</div>' : '<div class="loading">Add a Trakt shows catalog to preview shows</div>';
-            moviesContainer.innerHTML = traktMovies ? '<div class="loading">Loading movies...</div>' : '<div class="loading">Add a Trakt movies catalog to preview movies</div>';
-            theatersContainer.innerHTML = traktTheaters ? '<div class="loading">Loading theatrical releases...</div>' : '<div class="loading">Add a Trakt in-theaters catalog to preview theatrical releases</div>';
+
+            showsContainer.innerHTML = traktShows ? '<div class="loading">Loading shows...</div>' : '<div class="loading">Add a shows catalog to preview shows</div>';
+            moviesContainer.innerHTML = traktMovies ? '<div class="loading">Loading movies...</div>' : '<div class="loading">Add a movies catalog to preview movies</div>';
+            theatersContainer.innerHTML = traktTheaters ? '<div class="loading">Loading theatrical releases...</div>' : '<div class="loading">Add an in-theaters catalog to preview theatrical releases</div>';
             
             try {
                 const [showsRes, moviesRes, theatersRes] = await Promise.all([
@@ -1925,9 +2060,9 @@ const configUI = `<!DOCTYPE html>
                 currentTheaters = theatersData.metas || [];
                 
                 renderCurrentData();
-                if (!traktShows) showsContainer.innerHTML = '<div class="loading">Add a Trakt shows catalog to preview shows</div>';
-                if (!traktMovies) moviesContainer.innerHTML = '<div class="loading">Add a Trakt movies catalog to preview movies</div>';
-                if (!traktTheaters) theatersContainer.innerHTML = '<div class="loading">Add a Trakt in-theaters catalog to preview theatrical releases</div>';
+                if (!traktShows) showsContainer.innerHTML = '<div class="loading">Add a shows catalog to preview shows</div>';
+                if (!traktMovies) moviesContainer.innerHTML = '<div class="loading">Add a movies catalog to preview movies</div>';
+                if (!traktTheaters) theatersContainer.innerHTML = '<div class="loading">Add an in-theaters catalog to preview theatrical releases</div>';
                 
             } catch (err) {
                 const message = err && err.message ? err.message : 'Error loading preview';
@@ -1998,9 +2133,9 @@ const configWithRequestBaseUrl = (req, config = {}) => ({
 
 const sendCatalogError = (res, error) => {
     console.error("Catalog error:", error);
-    const message = error?.message?.startsWith("Unsupported Trakt catalog.")
+    const message = error?.message?.startsWith("Unsupported catalog.")
         ? error.message
-        : "Catalog fetch failed. Check that the Trakt URL is a public list and try again.";
+        : "Catalog fetch failed. Check that the catalog URL is a public Trakt or TMDB list and try again.";
     res.status(500).json({ err: message });
 };
 
