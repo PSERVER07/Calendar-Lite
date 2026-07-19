@@ -1042,6 +1042,8 @@ builder.defineCatalogHandler(async (args) => {
         portraitSeriesRanked: config.portraitSeriesRanked !== undefined ? config.portraitSeriesRanked === "true" : (config.portraitRanked === "true" || config.ranked === "true"),
         portraitTheatersRanked: config.portraitTheatersRanked !== undefined ? config.portraitTheatersRanked === "true" : (config.portraitRanked === "true" || config.ranked === "true"),
         top10Only: config.top10Only === "true",
+        movieTop10Only: config.movieTop10Only !== undefined ? config.movieTop10Only === "true" : config.top10Only === "true",
+        seriesTop10Only: config.seriesTop10Only !== undefined ? config.seriesTop10Only === "true" : config.top10Only === "true",
         portraitPosterLang: config.portraitPosterLang || config.posterLang || "en",
         digitalOnly: config.digitalOnly === "true",
         listLang: config.listLang || "en",
@@ -1305,14 +1307,19 @@ builder.defineCatalogHandler(async (args) => {
         page++;
     }
 
-    const displayItems = userConfig.top10Only ? finalItems.slice(0, 10) : finalItems;
+    const isTheatersCatalog = id === "calendar_lite_theaters";
+    const limitCatalogToTop10 = type === 'series'
+        ? userConfig.seriesTop10Only
+        : isTheatersCatalog
+            ? false
+            : userConfig.movieTop10Only;
+    const displayItems = limitCatalogToTop10 ? finalItems.slice(0, 10) : finalItems;
     const metas = displayItems.map((item, index) => {
         const rank = index + 1;
         let finalPosterUrl = item.poster_path ? `https://image.tmdb.org/t/p/w500${item.poster_path}` : null;
         const imdbId = item._details?.imdb_id || item._details?.external_ids?.imdb_id;
 
         const pTag = userConfig.portraitTags ? (item._tag || 'none') : 'none';
-        const isTheatersCatalog = id === "calendar_lite_theaters";
         const portraitLogosForCatalog = type === 'series'
             ? userConfig.portraitSeriesLogos
             : isTheatersCatalog
@@ -1767,12 +1774,15 @@ const configUI = `<!DOCTYPE html>
         .tooltip .tooltiptext::after { content: ""; position: absolute; top: 100%; left: 28px; margin-left: -5px; border-width: 5px; border-style: solid; border-color: #333 transparent transparent transparent; }
         .tooltip:hover .tooltiptext { visibility: visible; opacity: 1; }
         .sub-option-label { display: block; margin: 14px 0 8px; font-weight: 600; font-size: 14px; color: #b3b3b3; }
-        .sub-option-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 14px 0 8px; }
-        .sub-option-heading .sub-option-label { margin: 0; }
         .top10-toggle { display: inline-flex; align-items: center; gap: 6px; color: #b3b3b3; font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap; }
         .top10-toggle input { width: 14px; height: 14px; margin: 0; accent-color: #8b0000; cursor: pointer; }
         .sub-options { display: grid; gap: 8px; margin-bottom: 20px; }
         .sub-options .checkbox-group { margin-bottom: 0; padding-left: 18px; }
+        .ranked-row { justify-content: space-between; gap: 12px; }
+        .ranked-main { display: inline-flex; align-items: center; min-width: 0; color: #fff; cursor: pointer; }
+        .ranked-main input { width: 18px; height: 18px; margin: 0 12px 0 0; accent-color: #8b0000; cursor: pointer; }
+        .ranked-row .top10-toggle { margin-left: auto; }
+        .ranked-row .top10-toggle span { color: #b3b3b3; font-size: 12px; font-weight: 600; }
         @media (max-width: 768px) {
             body { padding: 10px; height: auto; overflow: auto; }
             .wrapper { flex-direction: column; height: auto; }
@@ -1838,13 +1848,16 @@ const configUI = `<!DOCTYPE html>
                     <label class="checkbox-group" for="portraitSeriesLogos"><input type="checkbox" id="portraitSeriesLogos" onchange="updateLink()"><span>TV Shows</span></label>
                     <label class="checkbox-group" for="portraitTheatersLogos"><input type="checkbox" id="portraitTheatersLogos" onchange="updateLink()"><span>In Theaters</span></label>
                 </div>
-                <div class="sub-option-heading">
-                    <span class="sub-option-label">Ranked Logo</span>
-                    <label class="top10-toggle" for="top10Only"><input type="checkbox" id="top10Only" onchange="updateLink()"><span>Top 10 only</span></label>
-                </div>
+                <span class="sub-option-label">Ranked Logo</span>
                 <div class="sub-options">
-                    <label class="checkbox-group" for="portraitMovieRanked"><input type="checkbox" id="portraitMovieRanked" onchange="updateLink()"><span>Movies</span></label>
-                    <label class="checkbox-group" for="portraitSeriesRanked"><input type="checkbox" id="portraitSeriesRanked" onchange="updateLink()"><span>TV Shows</span></label>
+                    <div class="checkbox-group ranked-row">
+                        <label class="ranked-main" for="portraitMovieRanked"><input type="checkbox" id="portraitMovieRanked" onchange="updateLink()"><span>Movies</span></label>
+                        <label class="top10-toggle" for="movieTop10Only"><input type="checkbox" id="movieTop10Only" onchange="updateLink()"><span>Top 10 only</span></label>
+                    </div>
+                    <div class="checkbox-group ranked-row">
+                        <label class="ranked-main" for="portraitSeriesRanked"><input type="checkbox" id="portraitSeriesRanked" onchange="updateLink()"><span>TV Shows</span></label>
+                        <label class="top10-toggle" for="seriesTop10Only"><input type="checkbox" id="seriesTop10Only" onchange="updateLink()"><span>Top 10 only</span></label>
+                    </div>
                     <label class="checkbox-group" for="portraitTheatersRanked"><input type="checkbox" id="portraitTheatersRanked" onchange="updateLink()"><span>In Theaters</span></label>
                 </div>
                 <label>Poster Language <span class="tooltip">?<span class="tooltiptext">If unavailable, falls back to media source language.</span></span></label>
@@ -2089,7 +2102,8 @@ const configUI = `<!DOCTYPE html>
                   pmranked = document.getElementById('portraitMovieRanked').checked,
                   psranked = document.getElementById('portraitSeriesRanked').checked,
                   ptranked = document.getElementById('portraitTheatersRanked').checked,
-                  top10 = document.getElementById('top10Only').checked,
+                  movieTop10 = document.getElementById('movieTop10Only').checked,
+                  seriesTop10 = document.getElementById('seriesTop10Only').checked,
                   plang = document.getElementById('posterLang').value,
                   d = document.getElementById('digitalOnly').checked,
                   traktShows = document.getElementById('traktShowsCatalog').value.trim(),
@@ -2111,7 +2125,7 @@ const configUI = `<!DOCTYPE html>
             const traktTheatersPart = traktTheaters ? "|traktTheatersCatalog=" + encodeURIComponent(traktTheaters) : "";
             const anyPortraitLogos = pmlo || pslo || ptlo;
             const anyPortraitRanked = pmranked || psranked || ptranked;
-            const c = "landscapeTags=false|landscapeLogos=false|landscapeRanked=false|portraitTags=" + pt + "|portraitLogos=" + anyPortraitLogos + "|portraitMovieLogos=" + pmlo + "|portraitSeriesLogos=" + pslo + "|portraitTheatersLogos=" + ptlo + "|portraitRanked=" + anyPortraitRanked + "|portraitMovieRanked=" + pmranked + "|portraitSeriesRanked=" + psranked + "|portraitTheatersRanked=" + ptranked + "|top10Only=" + top10 + "|posterLang=" + plang + "|digitalOnly=" + d + "|listLang=" + l + traktShowsPart + traktMoviesPart + traktTheatersPart;
+            const c = "landscapeTags=false|landscapeLogos=false|landscapeRanked=false|portraitTags=" + pt + "|portraitLogos=" + anyPortraitLogos + "|portraitMovieLogos=" + pmlo + "|portraitSeriesLogos=" + pslo + "|portraitTheatersLogos=" + ptlo + "|portraitRanked=" + anyPortraitRanked + "|portraitMovieRanked=" + pmranked + "|portraitSeriesRanked=" + psranked + "|portraitTheatersRanked=" + ptranked + "|movieTop10Only=" + movieTop10 + "|seriesTop10Only=" + seriesTop10 + "|posterLang=" + plang + "|digitalOnly=" + d + "|listLang=" + l + traktShowsPart + traktMoviesPart + traktTheatersPart;
             const h = window.location.host, pr = window.location.protocol;
             
             document.getElementById('manifestUrl').value = pr + "//" + h + "/" + c + "/manifest.json";
