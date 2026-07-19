@@ -1974,7 +1974,10 @@ const configWithRequestBaseUrl = (req, config = {}) => ({
 
 const sendCatalogError = (res, error) => {
     console.error("Catalog error:", error);
-    res.status(500).json({ err: error?.message || "Internal Server Error" });
+    const message = error?.message?.startsWith("Unsupported Trakt catalog.")
+        ? error.message
+        : "Catalog fetch failed. Check that the Trakt URL is a public list and try again.";
+    res.status(500).json({ err: message });
 };
 
 app.get('/', (req, res) => res.send(configUI));
