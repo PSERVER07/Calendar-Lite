@@ -1025,17 +1025,23 @@ builder.defineCatalogHandler(async (args) => {
                 if (needsTags) {
                     const daysSinceDigital = (item._earliestDigital && item._earliestDigital <= TODAY) ? diffDays(TODAY, item._earliestDigital) : null;
                     const daysSinceTheatrical = (item._earliestTheatrical && item._earliestTheatrical <= TODAY) ? diffDays(TODAY, item._earliestTheatrical) : null;
+                    const daysUntilDigital = (item._earliestDigital && item._earliestDigital > TODAY) ? diffDays(item._earliestDigital, TODAY) : null;
                     const isCurrentTheatricalCatalog = id === "calendar_lite_theaters";
 
-                    if (isCurrentTheatricalCatalog && daysSinceTheatrical !== null && daysSinceTheatrical <= 60 && daysSinceDigital === null) {
+                    if (
+                        isCurrentTheatricalCatalog &&
+                        daysSinceTheatrical !== null &&
+                        daysSinceTheatrical <= 45 &&
+                        daysSinceDigital === null &&
+                        (daysUntilDigital === null || daysUntilDigital > 14)
+                    ) {
                         item._tag = "in_theaters";
                     } else if (daysSinceDigital !== null) {
                         item._tag = daysSinceDigital <= 7 ? "new_release" : "new_movie";
                     } else if (!item._earliestDigital || item._earliestDigital > TODAY) {
                         if (item._earliestDigital) {
-                            const daysUntil = diffDays(item._earliestDigital, TODAY);
                             const formattedDate = formatFutureDate(item._earliestDigital);
-                            item._tag = daysUntil <= 14
+                            item._tag = daysUntilDigital <= 14
                                 ? `coming_date_${formattedDate.replace(' ', '_')}`
                                 : `coming_soon_date_${formattedDate.replace(' ', '_')}`;
                         } else {
