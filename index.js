@@ -183,20 +183,10 @@ function parseTraktCatalog(input) {
     const parts = pathname.split("/").filter(Boolean).map(part => decodeURIComponent(part));
     if (parts[0] === "users" && parts[1]) {
         if (parts[2] === "lists" && parts[3]) return { kind: "list", user: parts[1], list: parts[3] };
-        if (["watchlist", "collection", "favorites"].includes(parts[2])) return { kind: parts[2], user: parts[1] };
     }
     if (parts.length === 2) return { kind: "list", user: parts[0], list: parts[1] };
     if (parts.length === 3 && parts[1] === "lists") return { kind: "list", user: parts[0], list: parts[2] };
 
-    return null;
-}
-
-function traktItemsPath(catalog, type) {
-    const traktType = type === "series" ? "shows" : "movies";
-    if (catalog.kind === "list") return `/users/${encodeURIComponent(catalog.user)}/lists/${encodeURIComponent(catalog.list)}/items/${traktType}?extended=full&limit=100`;
-    if (catalog.kind === "watchlist") return `/users/${encodeURIComponent(catalog.user)}/watchlist/${traktType}?extended=full&limit=100`;
-    if (catalog.kind === "collection") return `/users/${encodeURIComponent(catalog.user)}/collection/${traktType}?extended=full&limit=100`;
-    if (catalog.kind === "favorites") return `/users/${encodeURIComponent(catalog.user)}/favorites/${traktType}?extended=full&limit=100`;
     return null;
 }
 
@@ -237,12 +227,9 @@ async function fetchTraktListItems(catalog, type) {
 
 async function fetchTraktTmdbSeeds(input, type) {
     const catalog = parseTraktCatalog(input);
-    if (!catalog) throw new Error("Unsupported Trakt catalog. Use a public Trakt list URL, username/list-slug, users/username/watchlist, users/username/collection, or users/username/favorites.");
+    if (!catalog) throw new Error("Unsupported Trakt catalog. Use a public Trakt list URL, users/username/lists/list-slug, or username/list-slug.");
 
-    const pathname = traktItemsPath(catalog, type);
-    const items = catalog.kind === "list"
-        ? await fetchTraktListItems(catalog, type)
-        : await fetchTraktJson(pathname);
+    const items = await fetchTraktListItems(catalog, type);
     const mediaKey = type === "series" ? "show" : "movie";
     const seen = new Set();
 
