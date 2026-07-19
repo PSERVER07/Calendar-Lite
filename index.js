@@ -541,7 +541,8 @@ const manifest = {
     idPrefixes: ["tmdb:"],
     catalogs: [
         { id: "calendar_lite_movies", type: "movie", name: "Coming Soon Movies" },
-        { id: "calendar_lite_shows", type: "series", name: "Coming Soon Shows" }
+        { id: "calendar_lite_shows", type: "series", name: "Coming Soon Shows" },
+        { id: "calendar_lite_theaters", type: "movie", name: "In Theaters" }
     ]
 };
 
@@ -911,13 +912,16 @@ builder.defineCatalogHandler(async (args) => {
         traktCatalog: normalizeTraktCatalogInput(config.traktCatalog),
         traktShowsCatalog: normalizeTraktCatalogInput(config.traktShowsCatalog || config.traktSeriesCatalog),
         traktMoviesCatalog: normalizeTraktCatalogInput(config.traktMoviesCatalog),
+        traktTheatersCatalog: normalizeTraktCatalogInput(config.traktTheatersCatalog),
         addonUrl: config.addonUrl || ADDON_URL
     };
 
     const tmdbType = type === 'series' ? 'tv' : 'movie';
-    const activeTraktCatalog = type === 'series'
-        ? (userConfig.traktShowsCatalog || userConfig.traktCatalog)
-        : (userConfig.traktMoviesCatalog || userConfig.traktCatalog);
+    const activeTraktCatalog = id === "calendar_lite_theaters"
+        ? userConfig.traktTheatersCatalog
+        : type === 'series'
+            ? (userConfig.traktShowsCatalog || userConfig.traktCatalog)
+            : (userConfig.traktMoviesCatalog || userConfig.traktCatalog);
     let finalItems = [];
     let seenIds = new Set();
     let page = 1;
@@ -1568,7 +1572,7 @@ const configUI = `<!DOCTYPE html>
         .link-container input { flex-grow: 1; padding: 12px; border-radius: 6px; border: 1px solid #333; background: #2a2a2a; color: #aaa; font-size: 13px; outline: none; }
         .link-container button { width: auto; margin-top: 0; padding: 0 20px; background-color: #8b0000; color: #fff; font-size: 14px; font-weight: 700; border: none; border-radius: 6px; cursor: pointer; transition: background .2s; }
         .link-container button:hover { background-color: #660000; }
-        .trakt-add-row { display: grid; grid-template-columns: 1fr auto auto auto; gap: 8px; margin-bottom: 12px; }
+        .trakt-add-row { display: grid; grid-template-columns: 1fr auto auto auto auto; gap: 8px; margin-bottom: 12px; }
         .trakt-add-row input, .trakt-slot input { width: 100%; padding: 12px; border-radius: 6px; border: 1px solid #333; background: #2a2a2a; color: #fff; font-size: 14px; outline: none; box-sizing: border-box; }
         .trakt-add-row button { padding: 0 12px; border: none; border-radius: 6px; background: #333; color: #fff; font-weight: 700; cursor: pointer; }
         .trakt-add-row button:hover { background: #444; }
@@ -1629,6 +1633,7 @@ const configUI = `<!DOCTYPE html>
                     <button type="button" onclick="assignTraktCatalog('auto')">Auto</button>
                     <button type="button" onclick="assignTraktCatalog('series')">Shows</button>
                     <button type="button" onclick="assignTraktCatalog('movie')">Movies</button>
+                    <button type="button" onclick="assignTraktCatalog('theaters')">Theaters</button>
                 </div>
                 <div class="trakt-slot">
                     <label>Shows Catalog <button type="button" class="trakt-clear" onclick="clearTraktCatalog('series')">Clear</button></label>
@@ -1637,6 +1642,10 @@ const configUI = `<!DOCTYPE html>
                 <div class="trakt-slot">
                     <label>Movies Catalog <button type="button" class="trakt-clear" onclick="clearTraktCatalog('movie')">Clear</button></label>
                     <input type="text" id="traktMoviesCatalog" placeholder="No movies catalog selected" oninput="updateLink()">
+                </div>
+                <div class="trakt-slot">
+                    <label>In Theaters Catalog <button type="button" class="trakt-clear" onclick="clearTraktCatalog('theaters')">Clear</button></label>
+                    <input type="text" id="traktTheatersCatalog" placeholder="No in-theaters catalog selected" oninput="updateLink()">
                 </div>
                 <label>Language</label>
                 <div class="multi-select" id="listLangSelect">
@@ -1693,12 +1702,17 @@ const configUI = `<!DOCTYPE html>
                 <h3 class="row-title" id="movies-title">Coming Soon Movies</h3>
                 <div id="movies-preview" class="horizontal-scroll"><div class="loading">Loading movies...</div></div>
             </div>
+            <div class="preview-section" style="margin-top: 20px;">
+                <h3 class="row-title" id="theaters-title">In Theaters</h3>
+                <div id="theaters-preview" class="horizontal-scroll"><div class="loading">Add a Trakt in-theaters catalog to preview theatrical releases</div></div>
+            </div>
         </div>
     </div>
     <script>
         let previewTimeout;
         let currentShows = [];
         let currentMovies = [];
+        let currentTheaters = [];
 
         function traktCatalogDisplayName(input) {
             const raw = (input || '').trim().replace(/^@/, '');
@@ -1730,6 +1744,7 @@ const configUI = `<!DOCTYPE html>
             const words = traktCatalogDisplayName(input).toLowerCase().split(' ').filter(Boolean);
             const lastWord = words[words.length - 1] || '';
             if (['show', 'shows', 'series'].includes(lastWord)) return 'series';
+            if (['theater', 'theaters', 'theatre', 'theatres', 'cinema', 'cinemas'].includes(lastWord)) return 'theaters';
             if (['movie', 'movies', 'film', 'films'].includes(lastWord)) return 'movie';
             return '';
         }
@@ -1744,6 +1759,8 @@ const configUI = `<!DOCTYPE html>
                 document.getElementById('traktShowsCatalog').value = value;
             } else if (resolvedTarget === 'movie') {
                 document.getElementById('traktMoviesCatalog').value = value;
+            } else if (resolvedTarget === 'theaters') {
+                document.getElementById('traktTheatersCatalog').value = value;
             } else {
                 document.getElementById('traktShowsCatalog').value = value;
             }
@@ -1753,13 +1770,15 @@ const configUI = `<!DOCTYPE html>
         }
 
         function clearTraktCatalog(target) {
-            document.getElementById(target === 'series' ? 'traktShowsCatalog' : 'traktMoviesCatalog').value = '';
+            const fieldId = target === 'series' ? 'traktShowsCatalog' : target === 'theaters' ? 'traktTheatersCatalog' : 'traktMoviesCatalog';
+            document.getElementById(fieldId).value = '';
             updateLink();
         }
 
-        function updatePreviewTitles(showsCatalog, moviesCatalog) {
+        function updatePreviewTitles(showsCatalog, moviesCatalog, theatersCatalog) {
             document.getElementById('shows-title').textContent = traktCatalogDisplayName(showsCatalog) || 'Coming Soon Shows';
             document.getElementById('movies-title').textContent = traktCatalogDisplayName(moviesCatalog) || 'Coming Soon Movies';
+            document.getElementById('theaters-title').textContent = traktCatalogDisplayName(theatersCatalog) || 'In Theaters';
         }
 
         function toggleMultiSelect() {
@@ -1795,9 +1814,10 @@ const configUI = `<!DOCTYPE html>
                   plang = document.getElementById('posterLang').value,
                   d = document.getElementById('digitalOnly').checked,
                   traktShows = document.getElementById('traktShowsCatalog').value.trim(),
-                  traktMovies = document.getElementById('traktMoviesCatalog').value.trim();
+                  traktMovies = document.getElementById('traktMoviesCatalog').value.trim(),
+                  traktTheaters = document.getElementById('traktTheatersCatalog').value.trim();
 
-            updatePreviewTitles(traktShows, traktMovies);
+            updatePreviewTitles(traktShows, traktMovies, traktTheaters);
                   
             const checkedLangs = Array.from(document.querySelectorAll('#listLangOptions input:checked'));
             const l = checkedLangs.map(opt => opt.value).join(',') || 'all';
@@ -1809,8 +1829,9 @@ const configUI = `<!DOCTYPE html>
                   
             const traktShowsPart = traktShows ? "|traktShowsCatalog=" + encodeURIComponent(traktShows) : "";
             const traktMoviesPart = traktMovies ? "|traktMoviesCatalog=" + encodeURIComponent(traktMovies) : "";
+            const traktTheatersPart = traktTheaters ? "|traktTheatersCatalog=" + encodeURIComponent(traktTheaters) : "";
             const anyPortraitLogos = pmlo || pslo;
-            const c = "landscapeTags=false|landscapeLogos=false|landscapeRanked=false|portraitTags=" + pt + "|portraitLogos=" + anyPortraitLogos + "|portraitMovieLogos=" + pmlo + "|portraitSeriesLogos=" + pslo + "|portraitRanked=" + pranked + "|posterLang=" + plang + "|digitalOnly=" + d + "|listLang=" + l + traktShowsPart + traktMoviesPart;
+            const c = "landscapeTags=false|landscapeLogos=false|landscapeRanked=false|portraitTags=" + pt + "|portraitLogos=" + anyPortraitLogos + "|portraitMovieLogos=" + pmlo + "|portraitSeriesLogos=" + pslo + "|portraitRanked=" + pranked + "|posterLang=" + plang + "|digitalOnly=" + d + "|listLang=" + l + traktShowsPart + traktMoviesPart + traktTheatersPart;
             const h = window.location.host, pr = window.location.protocol;
             
             document.getElementById('manifestUrl').value = pr + "//" + h + "/" + c + "/manifest.json";
@@ -1823,49 +1844,61 @@ const configUI = `<!DOCTYPE html>
         async function updatePreviews(config, pr, h) {
             const showsContainer = document.getElementById('shows-preview');
             const moviesContainer = document.getElementById('movies-preview');
+            const theatersContainer = document.getElementById('theaters-preview');
             const traktShows = document.getElementById('traktShowsCatalog').value.trim();
             const traktMovies = document.getElementById('traktMoviesCatalog').value.trim();
+            const traktTheaters = document.getElementById('traktTheatersCatalog').value.trim();
 
-            if (!traktShows && !traktMovies) {
+            if (!traktShows && !traktMovies && !traktTheaters) {
                 currentShows = [];
                 currentMovies = [];
+                currentTheaters = [];
                 showsContainer.innerHTML = '<div class="loading">Add a Trakt shows catalog to preview shows</div>';
                 moviesContainer.innerHTML = '<div class="loading">Add a Trakt movies catalog to preview movies</div>';
+                theatersContainer.innerHTML = '<div class="loading">Add a Trakt in-theaters catalog to preview theatrical releases</div>';
                 return;
             }
             
             showsContainer.innerHTML = traktShows ? '<div class="loading">Loading shows...</div>' : '<div class="loading">Add a Trakt shows catalog to preview shows</div>';
             moviesContainer.innerHTML = traktMovies ? '<div class="loading">Loading movies...</div>' : '<div class="loading">Add a Trakt movies catalog to preview movies</div>';
+            theatersContainer.innerHTML = traktTheaters ? '<div class="loading">Loading theatrical releases...</div>' : '<div class="loading">Add a Trakt in-theaters catalog to preview theatrical releases</div>';
             
             try {
-                const [showsRes, moviesRes] = await Promise.all([
+                const [showsRes, moviesRes, theatersRes] = await Promise.all([
                     traktShows ? fetch(pr + "//" + h + "/" + config + "/catalog/series/calendar_lite_shows.json") : Promise.resolve(null),
-                    traktMovies ? fetch(pr + "//" + h + "/" + config + "/catalog/movie/calendar_lite_movies.json") : Promise.resolve(null)
+                    traktMovies ? fetch(pr + "//" + h + "/" + config + "/catalog/movie/calendar_lite_movies.json") : Promise.resolve(null),
+                    traktTheaters ? fetch(pr + "//" + h + "/" + config + "/catalog/movie/calendar_lite_theaters.json") : Promise.resolve(null)
                 ]);
                 
                 const showsData = showsRes ? await showsRes.json() : { metas: [] };
                 const moviesData = moviesRes ? await moviesRes.json() : { metas: [] };
+                const theatersData = theatersRes ? await theatersRes.json() : { metas: [] };
 
                 if (showsRes && (!showsRes.ok || showsData.err)) throw new Error(showsData.err || 'Shows catalog failed');
                 if (moviesRes && (!moviesRes.ok || moviesData.err)) throw new Error(moviesData.err || 'Movies catalog failed');
+                if (theatersRes && (!theatersRes.ok || theatersData.err)) throw new Error(theatersData.err || 'In Theaters catalog failed');
                 
                 currentShows = showsData.metas || [];
                 currentMovies = moviesData.metas || [];
+                currentTheaters = theatersData.metas || [];
                 
                 renderCurrentData();
                 if (!traktShows) showsContainer.innerHTML = '<div class="loading">Add a Trakt shows catalog to preview shows</div>';
                 if (!traktMovies) moviesContainer.innerHTML = '<div class="loading">Add a Trakt movies catalog to preview movies</div>';
+                if (!traktTheaters) theatersContainer.innerHTML = '<div class="loading">Add a Trakt in-theaters catalog to preview theatrical releases</div>';
                 
             } catch (err) {
                 const message = err && err.message ? err.message : 'Error loading preview';
                 if (traktShows) showsContainer.innerHTML = '<div class="loading">' + message + '</div>';
                 if (traktMovies) moviesContainer.innerHTML = '<div class="loading">' + message + '</div>';
+                if (traktTheaters) theatersContainer.innerHTML = '<div class="loading">' + message + '</div>';
             }
         }
         
         function renderCurrentData() {
             const showsContainer = document.getElementById('shows-preview');
             const moviesContainer = document.getElementById('movies-preview');
+            const theatersContainer = document.getElementById('theaters-preview');
             
             const renderItems = (items) => {
                 if (!items || items.length === 0) return '<div class="loading">No items found</div>';
@@ -1881,6 +1914,7 @@ const configUI = `<!DOCTYPE html>
             
             showsContainer.innerHTML = renderItems(currentShows);
             moviesContainer.innerHTML = renderItems(currentMovies);
+            theatersContainer.innerHTML = renderItems(currentTheaters);
         }
         
         function copyLink() {
