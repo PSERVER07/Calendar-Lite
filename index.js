@@ -902,6 +902,8 @@ builder.defineCatalogHandler(async (args) => {
         landscapePosterLang: config.landscapePosterLang || config.posterLang || "en",
         portraitTags: config.portraitTags !== undefined ? config.portraitTags !== "false" : config.tags !== "false",
         portraitLogos: config.portraitLogos !== undefined ? config.portraitLogos === "true" : config.logos === "true",
+        portraitMovieLogos: config.portraitMovieLogos !== undefined ? config.portraitMovieLogos === "true" : (config.portraitLogos !== undefined ? config.portraitLogos === "true" : config.logos === "true"),
+        portraitSeriesLogos: config.portraitSeriesLogos !== undefined ? config.portraitSeriesLogos === "true" : (config.portraitLogos !== undefined ? config.portraitLogos === "true" : config.logos === "true"),
         portraitRanked: false,
         portraitPosterLang: config.portraitPosterLang || config.posterLang || "en",
         digitalOnly: config.digitalOnly !== "false",
@@ -920,15 +922,17 @@ builder.defineCatalogHandler(async (args) => {
     let seenIds = new Set();
     let page = 1;
     const useTraktCatalog = !!activeTraktCatalog;
-    const maxPages = useTraktCatalog ? 1 : 10;
-    const catalogLimit = useTraktCatalog ? Infinity : 10;
+    if (!useTraktCatalog) {
+        return { metas: [] };
+    }
+
+    const maxPages = 1;
+    const catalogLimit = Infinity;
     const TODAY = new Date();
     const CURRENT_MONTH_START = new Date(TODAY.getFullYear(), TODAY.getMonth(), 1);
 
     while (finalItems.length < catalogLimit && page <= maxPages) {
-        const data = useTraktCatalog
-            ? { results: await fetchTraktTmdbSeeds(activeTraktCatalog, type) }
-            : await fetchTmdbJson(`https://api.themoviedb.org/3/trending/${tmdbType}/day?api_key=${TMDB_API_KEY}&page=${page}`);
+        const data = { results: await fetchTraktTmdbSeeds(activeTraktCatalog, type) };
         if (!data.results || data.results.length === 0) break;
 
         let pageItems = data.results.filter(item => {
@@ -1157,8 +1161,9 @@ builder.defineCatalogHandler(async (args) => {
         const imdbId = item._details?.imdb_id || item._details?.external_ids?.imdb_id;
 
         const pTag = userConfig.portraitTags ? (item._tag || 'none') : 'none';
-        if (userConfig.portraitRanked || userConfig.portraitTags || userConfig.portraitLogos || userConfig.portraitPosterLang !== 'en') {
-            finalPosterUrl = `${userConfig.addonUrl}/proxy-image-poster/${type}/${item.id}/${pTag}/${userConfig.portraitRanked ? rank : 'none'}/${userConfig.portraitPosterLang}/${userConfig.portraitLogos ? '1' : '0'}.png`;
+        const portraitLogosForType = type === 'series' ? userConfig.portraitSeriesLogos : userConfig.portraitMovieLogos;
+        if (userConfig.portraitRanked || userConfig.portraitTags || portraitLogosForType || userConfig.portraitPosterLang !== 'en') {
+            finalPosterUrl = `${userConfig.addonUrl}/proxy-image-poster/${type}/${item.id}/${pTag}/${userConfig.portraitRanked ? rank : 'none'}/${userConfig.portraitPosterLang}/${portraitLogosForType ? '1' : '0'}.png`;
         }
 
         let itemGenres = item.genre_ids ? item.genre_ids.map(gId => genreMap[gId]).filter(Boolean) : [];
@@ -1599,6 +1604,9 @@ const configUI = `<!DOCTYPE html>
         .tooltip .tooltiptext { visibility: hidden; width: 220px; background-color: #333; color: #fff; text-align: center; border-radius: 6px; padding: 8px; position: absolute; z-index: 10; bottom: 100%; left: -20px; margin-bottom: 10px; opacity: 0; transition: opacity 0.2s; font-size: 12px; font-weight: 400; box-shadow: 0 4px 10px rgba(0,0,0,0.5); pointer-events: none; line-height: 1.4; }
         .tooltip .tooltiptext::after { content: ""; position: absolute; top: 100%; left: 28px; margin-left: -5px; border-width: 5px; border-style: solid; border-color: #333 transparent transparent transparent; }
         .tooltip:hover .tooltiptext { visibility: visible; opacity: 1; }
+        .sub-option-label { display: block; margin: 14px 0 8px; font-weight: 600; font-size: 14px; color: #b3b3b3; }
+        .sub-options { display: grid; gap: 8px; margin-bottom: 20px; }
+        .sub-options .checkbox-group { margin-bottom: 0; padding-left: 18px; }
         @media (max-width: 768px) {
             body { padding: 10px; height: auto; overflow: auto; }
             .wrapper { flex-direction: column; height: auto; }
@@ -1651,7 +1659,11 @@ const configUI = `<!DOCTYPE html>
             <div class="form-group">
                 <h3 style="color: #e0e0e0; margin: 0 0 15px 0; font-size: 16px; border-bottom: 1px solid #333; padding-bottom: 8px;">Poster Config</h3>
                 <label class="checkbox-group" for="portraitTags"><input type="checkbox" id="portraitTags" checked onchange="updateLink()"><span>Tags</span></label>
-                <label class="checkbox-group" for="portraitLogos"><input type="checkbox" id="portraitLogos" onchange="updateLink()"><span>Streaming Logos</span></label>
+                <span class="sub-option-label">Streaming Logos</span>
+                <div class="sub-options">
+                    <label class="checkbox-group" for="portraitMovieLogos"><input type="checkbox" id="portraitMovieLogos" onchange="updateLink()"><span>Movies</span></label>
+                    <label class="checkbox-group" for="portraitSeriesLogos"><input type="checkbox" id="portraitSeriesLogos" onchange="updateLink()"><span>TV Shows</span></label>
+                </div>
                 <label>Poster Language <span class="tooltip">?<span class="tooltiptext">If unavailable, falls back to media source language.</span></span></label>
                 <select id="posterLang" onchange="updateLink()"><option value="en" selected>English</option><option value="ja">Japanese</option><option value="ko">Korean</option><option value="es">Spanish</option><option value="fr">French</option><option value="de">German</option><option value="hi">Hindi</option><option value="null">Textless</option></select>
             </div>
@@ -1776,7 +1788,8 @@ const configUI = `<!DOCTYPE html>
 
         function updateLink() {
             const pt = document.getElementById('portraitTags').checked,
-                  plo = document.getElementById('portraitLogos').checked,
+                  pmlo = document.getElementById('portraitMovieLogos').checked,
+                  pslo = document.getElementById('portraitSeriesLogos').checked,
                   plang = document.getElementById('posterLang').value,
                   d = document.getElementById('digitalOnly').checked,
                   traktShows = document.getElementById('traktShowsCatalog').value.trim(),
@@ -1794,7 +1807,8 @@ const configUI = `<!DOCTYPE html>
                   
             const traktShowsPart = traktShows ? "|traktShowsCatalog=" + encodeURIComponent(traktShows) : "";
             const traktMoviesPart = traktMovies ? "|traktMoviesCatalog=" + encodeURIComponent(traktMovies) : "";
-            const c = "landscapeTags=false|landscapeLogos=false|landscapeRanked=false|portraitTags=" + pt + "|portraitLogos=" + plo + "|portraitRanked=false|posterLang=" + plang + "|digitalOnly=" + d + "|listLang=" + l + traktShowsPart + traktMoviesPart;
+            const anyPortraitLogos = pmlo || pslo;
+            const c = "landscapeTags=false|landscapeLogos=false|landscapeRanked=false|portraitTags=" + pt + "|portraitLogos=" + anyPortraitLogos + "|portraitMovieLogos=" + pmlo + "|portraitSeriesLogos=" + pslo + "|portraitRanked=false|posterLang=" + plang + "|digitalOnly=" + d + "|listLang=" + l + traktShowsPart + traktMoviesPart;
             const h = window.location.host, pr = window.location.protocol;
             
             document.getElementById('manifestUrl').value = pr + "//" + h + "/" + c + "/manifest.json";
@@ -1807,31 +1821,43 @@ const configUI = `<!DOCTYPE html>
         async function updatePreviews(config, pr, h) {
             const showsContainer = document.getElementById('shows-preview');
             const moviesContainer = document.getElementById('movies-preview');
+            const traktShows = document.getElementById('traktShowsCatalog').value.trim();
+            const traktMovies = document.getElementById('traktMoviesCatalog').value.trim();
+
+            if (!traktShows && !traktMovies) {
+                currentShows = [];
+                currentMovies = [];
+                showsContainer.innerHTML = '<div class="loading">Add a Trakt shows catalog to preview shows</div>';
+                moviesContainer.innerHTML = '<div class="loading">Add a Trakt movies catalog to preview movies</div>';
+                return;
+            }
             
-            showsContainer.innerHTML = '<div class="loading">Loading shows...</div>';
-            moviesContainer.innerHTML = '<div class="loading">Loading movies...</div>';
+            showsContainer.innerHTML = traktShows ? '<div class="loading">Loading shows...</div>' : '<div class="loading">Add a Trakt shows catalog to preview shows</div>';
+            moviesContainer.innerHTML = traktMovies ? '<div class="loading">Loading movies...</div>' : '<div class="loading">Add a Trakt movies catalog to preview movies</div>';
             
             try {
                 const [showsRes, moviesRes] = await Promise.all([
-                    fetch(pr + "//" + h + "/" + config + "/catalog/series/calendar_lite_shows.json"),
-                    fetch(pr + "//" + h + "/" + config + "/catalog/movie/calendar_lite_movies.json")
+                    traktShows ? fetch(pr + "//" + h + "/" + config + "/catalog/series/calendar_lite_shows.json") : Promise.resolve(null),
+                    traktMovies ? fetch(pr + "//" + h + "/" + config + "/catalog/movie/calendar_lite_movies.json") : Promise.resolve(null)
                 ]);
                 
-                const showsData = await showsRes.json();
-                const moviesData = await moviesRes.json();
+                const showsData = showsRes ? await showsRes.json() : { metas: [] };
+                const moviesData = moviesRes ? await moviesRes.json() : { metas: [] };
 
-                if (!showsRes.ok || showsData.err) throw new Error(showsData.err || 'Shows catalog failed');
-                if (!moviesRes.ok || moviesData.err) throw new Error(moviesData.err || 'Movies catalog failed');
+                if (showsRes && (!showsRes.ok || showsData.err)) throw new Error(showsData.err || 'Shows catalog failed');
+                if (moviesRes && (!moviesRes.ok || moviesData.err)) throw new Error(moviesData.err || 'Movies catalog failed');
                 
                 currentShows = showsData.metas || [];
                 currentMovies = moviesData.metas || [];
                 
                 renderCurrentData();
+                if (!traktShows) showsContainer.innerHTML = '<div class="loading">Add a Trakt shows catalog to preview shows</div>';
+                if (!traktMovies) moviesContainer.innerHTML = '<div class="loading">Add a Trakt movies catalog to preview movies</div>';
                 
             } catch (err) {
                 const message = err && err.message ? err.message : 'Error loading preview';
-                showsContainer.innerHTML = '<div class="loading">' + message + '</div>';
-                moviesContainer.innerHTML = '<div class="loading">' + message + '</div>';
+                if (traktShows) showsContainer.innerHTML = '<div class="loading">' + message + '</div>';
+                if (traktMovies) moviesContainer.innerHTML = '<div class="loading">' + message + '</div>';
             }
         }
         
