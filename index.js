@@ -503,7 +503,7 @@ async function fetchGenres() {
 fetchGenres();
 
 const manifest = {
-    id: "com.trending.custom",
+    id: "com.pserver.calendar-lite",
     version: "1.12.2",
     name: "Coming Soon",
     description: "Customizable Stremio catalogs for upcoming and recently released content with optional graphic tags and Trakt lists.",
@@ -512,8 +512,8 @@ const manifest = {
     types: ["movie", "series"],
     idPrefixes: ["tmdb:"],
     catalogs: [
-        { id: "top_movies_today", type: "movie", name: "Coming Soon Movies" },
-        { id: "top_shows_today", type: "series", name: "Coming Soon Shows" }
+        { id: "calendar_lite_movies", type: "movie", name: "Coming Soon Movies" },
+        { id: "calendar_lite_shows", type: "series", name: "Coming Soon Shows" }
     ]
 };
 
@@ -1784,8 +1784,8 @@ const configUI = `<!DOCTYPE html>
             
             try {
                 const [showsRes, moviesRes] = await Promise.all([
-                    fetch(pr + "//" + h + "/" + config + "/catalog/series/top_shows_today.json"),
-                    fetch(pr + "//" + h + "/" + config + "/catalog/movie/top_movies_today.json")
+                    fetch(pr + "//" + h + "/" + config + "/catalog/series/calendar_lite_shows.json"),
+                    fetch(pr + "//" + h + "/" + config + "/catalog/movie/calendar_lite_movies.json")
                 ]);
                 
                 const showsData = await showsRes.json();
