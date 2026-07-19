@@ -1890,14 +1890,14 @@ const configUI = `<!DOCTYPE html>
                 isTmdb = /(^|\.)themoviedb\.org$/i.test(parsed.hostname);
             } catch {
                 pathname = raw.startsWith('/') ? raw : '/' + raw;
-                isTmdb = /^tmdb[:/]/i.test(raw) || /^(?:list\/)?\d+(?:[-_][A-Za-z0-9_-]+)?$/i.test(raw);
+                isTmdb = /^tmdb[:/]/i.test(raw) || /^(?:list\\/)?\d+(?:[-_][A-Za-z0-9_-]+)?$/i.test(raw);
             }
 
             const parts = pathname.split('/').filter(Boolean).map(part => decodeURIComponent(part));
             let name = '';
             if (isTmdb) {
                 const listIndex = parts.findIndex(part => part.toLowerCase() === 'list');
-                const rawTmdbId = raw.match(/^(?:tmdb:|tmdb\/|list\/)?(\d+(?:[-_][A-Za-z0-9_-]+)?)/i);
+                const rawTmdbId = raw.match(/^(?:tmdb:|tmdb\\/|list\\/)?(\d+(?:[-_][A-Za-z0-9_-]+)?)/i);
                 const idPart = listIndex >= 0 ? parts[listIndex + 1] : (parts.find(part => /^\d+/.test(part)) || (rawTmdbId ? rawTmdbId[1] : ''));
                 const slugPart = (idPart || '').replace(/^\d+[-_]?/, '');
                 name = slugPart || (idPart ? 'TMDB List ' + (idPart.match(/^\d+/) || [''])[0] : '');
@@ -1936,7 +1936,7 @@ const configUI = `<!DOCTYPE html>
             if (tokens.some(word => ['theater', 'theaters', 'theatre', 'theatres', 'cinema', 'cinemas'].includes(word))) return 'theaters';
             if (tokens.some(word => ['show', 'shows', 'series'].includes(word)) || ['show', 'shows', 'series'].includes(lastWord)) return 'series';
             if (tokens.some(word => ['movie', 'movies', 'film', 'films'].includes(word)) || ['movie', 'movies', 'film', 'films'].includes(lastWord)) return 'movie';
-            if (/^(?:tmdb:|tmdb\/|(?:list\/)?\d+)/i.test(raw)) return 'movie';
+            if (/^(?:tmdb:|tmdb\\/|(?:list\\/)?\d+)/i.test(raw)) return 'movie';
             if (/themoviedb\.org/i.test(raw)) return 'movie';
 
             return 'movie';
