@@ -904,7 +904,7 @@ builder.defineCatalogHandler(async (args) => {
         portraitLogos: config.portraitLogos !== undefined ? config.portraitLogos === "true" : config.logos === "true",
         portraitMovieLogos: config.portraitMovieLogos !== undefined ? config.portraitMovieLogos === "true" : (config.portraitLogos !== undefined ? config.portraitLogos === "true" : config.logos === "true"),
         portraitSeriesLogos: config.portraitSeriesLogos !== undefined ? config.portraitSeriesLogos === "true" : (config.portraitLogos !== undefined ? config.portraitLogos === "true" : config.logos === "true"),
-        portraitRanked: false,
+        portraitRanked: config.portraitRanked === "true" || config.ranked === "true",
         portraitPosterLang: config.portraitPosterLang || config.posterLang || "en",
         digitalOnly: config.digitalOnly !== "false",
         listLang: config.listLang || "en",
@@ -1664,6 +1664,7 @@ const configUI = `<!DOCTYPE html>
                     <label class="checkbox-group" for="portraitMovieLogos"><input type="checkbox" id="portraitMovieLogos" onchange="updateLink()"><span>Movies</span></label>
                     <label class="checkbox-group" for="portraitSeriesLogos"><input type="checkbox" id="portraitSeriesLogos" onchange="updateLink()"><span>TV Shows</span></label>
                 </div>
+                <label class="checkbox-group" for="portraitRanked"><input type="checkbox" id="portraitRanked" onchange="updateLink()"><span>Ranked</span></label>
                 <label>Poster Language <span class="tooltip">?<span class="tooltiptext">If unavailable, falls back to media source language.</span></span></label>
                 <select id="posterLang" onchange="updateLink()"><option value="en" selected>English</option><option value="ja">Japanese</option><option value="ko">Korean</option><option value="es">Spanish</option><option value="fr">French</option><option value="de">German</option><option value="hi">Hindi</option><option value="null">Textless</option></select>
             </div>
@@ -1790,6 +1791,7 @@ const configUI = `<!DOCTYPE html>
             const pt = document.getElementById('portraitTags').checked,
                   pmlo = document.getElementById('portraitMovieLogos').checked,
                   pslo = document.getElementById('portraitSeriesLogos').checked,
+                  pranked = document.getElementById('portraitRanked').checked,
                   plang = document.getElementById('posterLang').value,
                   d = document.getElementById('digitalOnly').checked,
                   traktShows = document.getElementById('traktShowsCatalog').value.trim(),
@@ -1808,7 +1810,7 @@ const configUI = `<!DOCTYPE html>
             const traktShowsPart = traktShows ? "|traktShowsCatalog=" + encodeURIComponent(traktShows) : "";
             const traktMoviesPart = traktMovies ? "|traktMoviesCatalog=" + encodeURIComponent(traktMovies) : "";
             const anyPortraitLogos = pmlo || pslo;
-            const c = "landscapeTags=false|landscapeLogos=false|landscapeRanked=false|portraitTags=" + pt + "|portraitLogos=" + anyPortraitLogos + "|portraitMovieLogos=" + pmlo + "|portraitSeriesLogos=" + pslo + "|portraitRanked=false|posterLang=" + plang + "|digitalOnly=" + d + "|listLang=" + l + traktShowsPart + traktMoviesPart;
+            const c = "landscapeTags=false|landscapeLogos=false|landscapeRanked=false|portraitTags=" + pt + "|portraitLogos=" + anyPortraitLogos + "|portraitMovieLogos=" + pmlo + "|portraitSeriesLogos=" + pslo + "|portraitRanked=" + pranked + "|posterLang=" + plang + "|digitalOnly=" + d + "|listLang=" + l + traktShowsPart + traktMoviesPart;
             const h = window.location.host, pr = window.location.protocol;
             
             document.getElementById('manifestUrl').value = pr + "//" + h + "/" + c + "/manifest.json";
