@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: coming-soon
+    name: calendar-lite
     runtime: docker
     plan: free
     branch: main
