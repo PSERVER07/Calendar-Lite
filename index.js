@@ -1767,6 +1767,7 @@ const configUI = `<!DOCTYPE html>
         .sub-option-label { display: block; margin: 14px 0 8px; font-weight: 600; font-size: 14px; color: #b3b3b3; }
         .sub-options { display: grid; gap: 8px; margin-bottom: 20px; }
         .sub-options .checkbox-group { margin-bottom: 0; padding-left: 18px; }
+        .build-marker { color: #777; font-size: 11px; text-align: center; margin-top: -10px; margin-bottom: 22px; }
         @media (max-width: 768px) {
             body { padding: 10px; height: auto; overflow: auto; }
             .wrapper { flex-direction: column; height: auto; }
@@ -1780,6 +1781,7 @@ const configUI = `<!DOCTYPE html>
     <div class="wrapper">
         <div class="container">
             <h2>Coming Soon</h2>
+            <div class="build-marker">Build ui-regexless-20260719</div>
 
             <div class="form-group">
                 <h3 style="color: #e0e0e0; margin: 0 0 15px 0; font-size: 16px; border-bottom: 1px solid #333; padding-bottom: 8px;">Catalog Filters</h3>
@@ -1877,9 +1879,57 @@ const configUI = `<!DOCTYPE html>
         let currentShows = [];
         let currentMovies = [];
         let currentTheaters = [];
+        console.log('Calendar-Lite UI build ui-regexless-20260719');
+
+        function trimAt(input) {
+            const value = (input || '').trim();
+            return value.charAt(0) === '@' ? value.slice(1) : value;
+        }
+
+        function tmdbHost(hostname) {
+            const host = (hostname || '').toLowerCase();
+            return host === 'themoviedb.org' || host.slice(-16) === '.themoviedb.org';
+        }
+
+        function firstDigitPart(value) {
+            const text = String(value || '');
+            let out = '';
+            for (let i = 0; i < text.length; i += 1) {
+                const char = text.charAt(i);
+                if (char < '0' || char > '9') break;
+                out += char;
+            }
+            return out;
+        }
+
+        function tmdbIdPartFromRaw(raw) {
+            const lower = raw.toLowerCase();
+            let candidate = raw;
+            if (lower.indexOf('tmdb:') === 0) candidate = raw.slice(5);
+            else if (lower.indexOf('tmdb/list/') === 0) candidate = raw.slice(10);
+            else if (lower.indexOf('tmdb/') === 0) candidate = raw.slice(5);
+            else if (lower.indexOf('list/') === 0) candidate = raw.slice(5);
+
+            return firstDigitPart(candidate) ? candidate : '';
+        }
+
+        function textTokens(value) {
+            return String(value || '')
+                .toLowerCase()
+                .split('-').join(' ')
+                .split('_').join(' ')
+                .split(' ')
+                .filter(Boolean);
+        }
+
+        function plainTitle(name) {
+            return textTokens(name)
+                .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+                .join(' ');
+        }
 
         function traktCatalogDisplayName(input) {
-            const raw = (input || '').trim().replace(/^@/, '');
+            const raw = trimAt(input);
             if (!raw) return '';
 
             let pathname = raw;
@@ -1887,20 +1937,26 @@ const configUI = `<!DOCTYPE html>
             try {
                 const parsed = new URL(raw);
                 pathname = parsed.pathname;
-                isTmdb = /(^|\.)themoviedb\.org$/i.test(parsed.hostname);
+                isTmdb = tmdbHost(parsed.hostname);
             } catch {
                 pathname = raw.startsWith('/') ? raw : '/' + raw;
-                isTmdb = /^tmdb[:/]/i.test(raw) || /^(?:list\\/)?\d+(?:[-_][A-Za-z0-9_-]+)?$/i.test(raw);
+                const lower = raw.toLowerCase();
+                isTmdb = lower.indexOf('tmdb:') === 0
+                    || lower.indexOf('tmdb/') === 0
+                    || lower.indexOf('list/') === 0
+                    || !!firstDigitPart(raw);
             }
 
             const parts = pathname.split('/').filter(Boolean).map(part => decodeURIComponent(part));
             let name = '';
             if (isTmdb) {
                 const listIndex = parts.findIndex(part => part.toLowerCase() === 'list');
-                const rawTmdbId = raw.match(/^(?:tmdb:|tmdb\\/|list\\/)?(\d+(?:[-_][A-Za-z0-9_-]+)?)/i);
-                const idPart = listIndex >= 0 ? parts[listIndex + 1] : (parts.find(part => /^\d+/.test(part)) || (rawTmdbId ? rawTmdbId[1] : ''));
-                const slugPart = (idPart || '').replace(/^\d+[-_]?/, '');
-                name = slugPart || (idPart ? 'TMDB List ' + (idPart.match(/^\d+/) || [''])[0] : '');
+                const fromPath = parts.find(part => !!firstDigitPart(part));
+                const idPart = listIndex >= 0 ? parts[listIndex + 1] : (fromPath || tmdbIdPartFromRaw(raw));
+                const digitPrefix = firstDigitPart(idPart);
+                let slugPart = digitPrefix ? idPart.slice(digitPrefix.length) : '';
+                if (slugPart.charAt(0) === '-' || slugPart.charAt(0) === '_') slugPart = slugPart.slice(1);
+                name = slugPart || (digitPrefix ? 'TMDB List ' + digitPrefix : '');
             } else if (parts[0] === 'users' && parts[1]) {
                 if (parts[2] === 'lists' && parts[3]) name = parts[3];
                 else if (parts[2]) name = parts[2];
@@ -1910,12 +1966,11 @@ const configUI = `<!DOCTYPE html>
                 name = parts[2];
             }
 
-            const words = name.replace(/[-_]+/g, ' ').split(' ').filter(Boolean);
-            return words.map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()).join(' ');
+            return plainTitle(name);
         }
 
         function traktCatalogTarget(input) {
-            const raw = (input || '').trim().replace(/^@/, '');
+            const raw = trimAt(input);
             let pathname = raw;
             try {
                 pathname = new URL(raw).pathname;
@@ -1925,7 +1980,7 @@ const configUI = `<!DOCTYPE html>
 
             const rawTokens = [];
             pathname.split('/').filter(Boolean).forEach(part => {
-                decodeURIComponent(part).toLowerCase().split(/[-_\\s]+/).filter(Boolean).forEach(token => {
+                textTokens(decodeURIComponent(part)).forEach(token => {
                     rawTokens.push(token);
                 });
             });
@@ -1936,8 +1991,8 @@ const configUI = `<!DOCTYPE html>
             if (tokens.some(word => ['theater', 'theaters', 'theatre', 'theatres', 'cinema', 'cinemas'].includes(word))) return 'theaters';
             if (tokens.some(word => ['show', 'shows', 'series'].includes(word)) || ['show', 'shows', 'series'].includes(lastWord)) return 'series';
             if (tokens.some(word => ['movie', 'movies', 'film', 'films'].includes(word)) || ['movie', 'movies', 'film', 'films'].includes(lastWord)) return 'movie';
-            if (/^(?:tmdb:|tmdb\\/|(?:list\\/)?\d+)/i.test(raw)) return 'movie';
-            if (/themoviedb\.org/i.test(raw)) return 'movie';
+            if (tmdbIdPartFromRaw(raw)) return 'movie';
+            if (raw.toLowerCase().indexOf('themoviedb.org') >= 0) return 'movie';
 
             return 'movie';
         }
