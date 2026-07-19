@@ -910,7 +910,11 @@ builder.defineCatalogHandler(async (args) => {
         portraitLogos: config.portraitLogos !== undefined ? config.portraitLogos === "true" : config.logos === "true",
         portraitMovieLogos: config.portraitMovieLogos !== undefined ? config.portraitMovieLogos === "true" : (config.portraitLogos !== undefined ? config.portraitLogos === "true" : config.logos === "true"),
         portraitSeriesLogos: config.portraitSeriesLogos !== undefined ? config.portraitSeriesLogos === "true" : (config.portraitLogos !== undefined ? config.portraitLogos === "true" : config.logos === "true"),
+        portraitTheatersLogos: config.portraitTheatersLogos !== undefined ? config.portraitTheatersLogos === "true" : (config.portraitMovieLogos !== undefined ? config.portraitMovieLogos === "true" : (config.portraitLogos !== undefined ? config.portraitLogos === "true" : config.logos === "true")),
         portraitRanked: config.portraitRanked === "true" || config.ranked === "true",
+        portraitMovieRanked: config.portraitMovieRanked !== undefined ? config.portraitMovieRanked === "true" : (config.portraitRanked === "true" || config.ranked === "true"),
+        portraitSeriesRanked: config.portraitSeriesRanked !== undefined ? config.portraitSeriesRanked === "true" : (config.portraitRanked === "true" || config.ranked === "true"),
+        portraitTheatersRanked: config.portraitTheatersRanked !== undefined ? config.portraitTheatersRanked === "true" : (config.portraitRanked === "true" || config.ranked === "true"),
         portraitPosterLang: config.portraitPosterLang || config.posterLang || "en",
         digitalOnly: config.digitalOnly === "true",
         listLang: config.listLang || "en",
@@ -1180,9 +1184,19 @@ builder.defineCatalogHandler(async (args) => {
         const imdbId = item._details?.imdb_id || item._details?.external_ids?.imdb_id;
 
         const pTag = userConfig.portraitTags ? (item._tag || 'none') : 'none';
-        const portraitLogosForType = type === 'series' ? userConfig.portraitSeriesLogos : userConfig.portraitMovieLogos;
-        if (userConfig.portraitRanked || userConfig.portraitTags || portraitLogosForType || userConfig.portraitPosterLang !== 'en') {
-            finalPosterUrl = `${userConfig.addonUrl}/proxy-image-poster/${type}/${item.id}/${pTag}/${userConfig.portraitRanked ? rank : 'none'}/${userConfig.portraitPosterLang}/${portraitLogosForType ? '1' : '0'}.png`;
+        const isTheatersCatalog = id === "calendar_lite_theaters";
+        const portraitLogosForCatalog = type === 'series'
+            ? userConfig.portraitSeriesLogos
+            : isTheatersCatalog
+                ? userConfig.portraitTheatersLogos
+                : userConfig.portraitMovieLogos;
+        const portraitRankedForCatalog = type === 'series'
+            ? userConfig.portraitSeriesRanked
+            : isTheatersCatalog
+                ? userConfig.portraitTheatersRanked
+                : userConfig.portraitMovieRanked;
+        if (portraitRankedForCatalog || userConfig.portraitTags || portraitLogosForCatalog || userConfig.portraitPosterLang !== 'en') {
+            finalPosterUrl = `${userConfig.addonUrl}/proxy-image-poster/${type}/${item.id}/${pTag}/${portraitRankedForCatalog ? rank : 'none'}/${userConfig.portraitPosterLang}/${portraitLogosForCatalog ? '1' : '0'}.png`;
         }
 
         let itemGenres = item.genre_ids ? item.genre_ids.map(gId => genreMap[gId]).filter(Boolean) : [];
@@ -1690,8 +1704,14 @@ const configUI = `<!DOCTYPE html>
                 <div class="sub-options">
                     <label class="checkbox-group" for="portraitMovieLogos"><input type="checkbox" id="portraitMovieLogos" onchange="updateLink()"><span>Movies</span></label>
                     <label class="checkbox-group" for="portraitSeriesLogos"><input type="checkbox" id="portraitSeriesLogos" onchange="updateLink()"><span>TV Shows</span></label>
+                    <label class="checkbox-group" for="portraitTheatersLogos"><input type="checkbox" id="portraitTheatersLogos" onchange="updateLink()"><span>In Theaters</span></label>
                 </div>
-                <label class="checkbox-group" for="portraitRanked"><input type="checkbox" id="portraitRanked" onchange="updateLink()"><span>Ranked</span></label>
+                <span class="sub-option-label">Ranked Logo</span>
+                <div class="sub-options">
+                    <label class="checkbox-group" for="portraitMovieRanked"><input type="checkbox" id="portraitMovieRanked" onchange="updateLink()"><span>Movies</span></label>
+                    <label class="checkbox-group" for="portraitSeriesRanked"><input type="checkbox" id="portraitSeriesRanked" onchange="updateLink()"><span>TV Shows</span></label>
+                    <label class="checkbox-group" for="portraitTheatersRanked"><input type="checkbox" id="portraitTheatersRanked" onchange="updateLink()"><span>In Theaters</span></label>
+                </div>
                 <label>Poster Language <span class="tooltip">?<span class="tooltiptext">If unavailable, falls back to media source language.</span></span></label>
                 <select id="posterLang" onchange="updateLink()"><option value="en" selected>English</option><option value="ja">Japanese</option><option value="ko">Korean</option><option value="es">Spanish</option><option value="fr">French</option><option value="de">German</option><option value="hi">Hindi</option><option value="null">Textless</option></select>
             </div>
@@ -1828,7 +1848,10 @@ const configUI = `<!DOCTYPE html>
             const pt = document.getElementById('portraitTags').checked,
                   pmlo = document.getElementById('portraitMovieLogos').checked,
                   pslo = document.getElementById('portraitSeriesLogos').checked,
-                  pranked = document.getElementById('portraitRanked').checked,
+                  ptlo = document.getElementById('portraitTheatersLogos').checked,
+                  pmranked = document.getElementById('portraitMovieRanked').checked,
+                  psranked = document.getElementById('portraitSeriesRanked').checked,
+                  ptranked = document.getElementById('portraitTheatersRanked').checked,
                   plang = document.getElementById('posterLang').value,
                   d = document.getElementById('digitalOnly').checked,
                   traktShows = document.getElementById('traktShowsCatalog').value.trim(),
@@ -1848,8 +1871,9 @@ const configUI = `<!DOCTYPE html>
             const traktShowsPart = traktShows ? "|traktShowsCatalog=" + encodeURIComponent(traktShows) : "";
             const traktMoviesPart = traktMovies ? "|traktMoviesCatalog=" + encodeURIComponent(traktMovies) : "";
             const traktTheatersPart = traktTheaters ? "|traktTheatersCatalog=" + encodeURIComponent(traktTheaters) : "";
-            const anyPortraitLogos = pmlo || pslo;
-            const c = "landscapeTags=false|landscapeLogos=false|landscapeRanked=false|portraitTags=" + pt + "|portraitLogos=" + anyPortraitLogos + "|portraitMovieLogos=" + pmlo + "|portraitSeriesLogos=" + pslo + "|portraitRanked=" + pranked + "|posterLang=" + plang + "|digitalOnly=" + d + "|listLang=" + l + traktShowsPart + traktMoviesPart + traktTheatersPart;
+            const anyPortraitLogos = pmlo || pslo || ptlo;
+            const anyPortraitRanked = pmranked || psranked || ptranked;
+            const c = "landscapeTags=false|landscapeLogos=false|landscapeRanked=false|portraitTags=" + pt + "|portraitLogos=" + anyPortraitLogos + "|portraitMovieLogos=" + pmlo + "|portraitSeriesLogos=" + pslo + "|portraitTheatersLogos=" + ptlo + "|portraitRanked=" + anyPortraitRanked + "|portraitMovieRanked=" + pmranked + "|portraitSeriesRanked=" + psranked + "|portraitTheatersRanked=" + ptranked + "|posterLang=" + plang + "|digitalOnly=" + d + "|listLang=" + l + traktShowsPart + traktMoviesPart + traktTheatersPart;
             const h = window.location.host, pr = window.location.protocol;
             
             document.getElementById('manifestUrl').value = pr + "//" + h + "/" + c + "/manifest.json";
