@@ -4,8 +4,10 @@ This document outlines the various landscape graphic tags applied to content and
 
 ## Movies
 
-Movie tags are calculated using the earliest available **Theatrical** and **Digital (VOD)** release dates from the TMDB API. If a Trakt movie catalog item does not have a TMDB digital release date, the addon falls back to Trakt movie releases and uses the first available US or GB digital date.
+Movie tags are calculated using the earliest available **Theatrical** and **Digital (VOD)** release dates from the TMDB API. If a Trakt movie catalog item does not have a TMDB theatrical or digital release date, the addon falls back to Trakt movie releases and uses the first available US or GB matching date.
 
+*   **`In Theaters`**
+    *   **Logic:** The movie is in the dedicated **In Theaters** Trakt catalog, its theatrical release date from TMDB or Trakt was within the last **60 days or fewer**, and it has not been released digitally yet. If it is no longer listed in the **In Theaters** catalog or it no longer qualifies as a current theatrical release, the tag falls back to the normal **Coming Soon** logic.
 *   **`Coming [Month] [Day]`**
     *   **Logic:** The movie has not been released digitally yet, but its digital release date is exactly **14 days or fewer** away.
 *   **`Coming Soon [Month] [Day]`**

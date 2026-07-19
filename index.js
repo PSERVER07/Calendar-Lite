@@ -314,18 +314,35 @@ async function fetchTraktDigitalReleaseDate(traktId) {
     }
 }
 
+async function fetchTraktTheatricalReleaseDate(traktId) {
+    if (!traktId) return null;
+    try {
+        const releases = await fetchTraktJson(`/movies/${encodeURIComponent(traktId)}/releases`);
+        if (!Array.isArray(releases)) return null;
+        return earliestReleaseDateByRegion(releases, ["US", "GB"], release => {
+            const releaseType = release.release_type;
+            return (typeof releaseType === "string" && ["premiere", "limited", "theatrical"].includes(releaseType.toLowerCase()))
+                || [1, 2, 3].includes(releaseType);
+        });
+    } catch {
+        return null;
+    }
+}
+
 async function fetchMovieReleaseDates(movie) {
     const fallbackDates = { earliestTheatrical: null, earliestDigital: null, earliestPhysical: null };
     try {
         const dates = await fetchTmdbMovieReleaseDates(movie.id);
-        if (dates.earliestDigital) return dates;
+        if (dates.earliestDigital && dates.earliestTheatrical) return dates;
         return {
             ...dates,
-            earliestDigital: await fetchTraktDigitalReleaseDate(movie._traktId)
+            earliestTheatrical: dates.earliestTheatrical || await fetchTraktTheatricalReleaseDate(movie._traktId),
+            earliestDigital: dates.earliestDigital || await fetchTraktDigitalReleaseDate(movie._traktId)
         };
     } catch {
         return {
             ...fallbackDates,
+            earliestTheatrical: await fetchTraktTheatricalReleaseDate(movie._traktId),
             earliestDigital: await fetchTraktDigitalReleaseDate(movie._traktId)
         };
     }
@@ -570,6 +587,7 @@ const formatFutureDate = (dateObj) => {
 const tagDisplayNameMap = {
     "new_release": "New Release",
     "new_movie": "New Movie",
+    "in_theaters": "In Theaters",
     "coming_soon": "Coming Soon",
     "new_series": "New Series",
     "season_finale": "Season Finale",
@@ -1006,8 +1024,12 @@ builder.defineCatalogHandler(async (args) => {
                 const needsTags = userConfig.landscapeTags || userConfig.portraitTags;
                 if (needsTags) {
                     const daysSinceDigital = (item._earliestDigital && item._earliestDigital <= TODAY) ? diffDays(TODAY, item._earliestDigital) : null;
+                    const daysSinceTheatrical = (item._earliestTheatrical && item._earliestTheatrical <= TODAY) ? diffDays(TODAY, item._earliestTheatrical) : null;
+                    const isCurrentTheatricalCatalog = id === "calendar_lite_theaters";
 
-                    if (daysSinceDigital !== null) {
+                    if (isCurrentTheatricalCatalog && daysSinceTheatrical !== null && daysSinceTheatrical <= 60 && daysSinceDigital === null) {
+                        item._tag = "in_theaters";
+                    } else if (daysSinceDigital !== null) {
                         item._tag = daysSinceDigital <= 7 ? "new_release" : "new_movie";
                     } else if (!item._earliestDigital || item._earliestDigital > TODAY) {
                         if (item._earliestDigital) {
