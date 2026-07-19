@@ -925,7 +925,7 @@ builder.defineCatalogHandler(async (args) => {
         portraitSeriesLogos: config.portraitSeriesLogos !== undefined ? config.portraitSeriesLogos === "true" : (config.portraitLogos !== undefined ? config.portraitLogos === "true" : config.logos === "true"),
         portraitRanked: config.portraitRanked === "true" || config.ranked === "true",
         portraitPosterLang: config.portraitPosterLang || config.posterLang || "en",
-        digitalOnly: config.digitalOnly !== "false",
+        digitalOnly: config.digitalOnly === "true",
         listLang: config.listLang || "en",
         traktCatalog: normalizeTraktCatalogInput(config.traktCatalog),
         traktShowsCatalog: normalizeTraktCatalogInput(config.traktShowsCatalog || config.traktSeriesCatalog),
@@ -1594,9 +1594,10 @@ const configUI = `<!DOCTYPE html>
         .link-container input { flex-grow: 1; padding: 12px; border-radius: 6px; border: 1px solid #333; background: #2a2a2a; color: #aaa; font-size: 13px; outline: none; }
         .link-container button { width: auto; margin-top: 0; padding: 0 20px; background-color: #8b0000; color: #fff; font-size: 14px; font-weight: 700; border: none; border-radius: 6px; cursor: pointer; transition: background .2s; }
         .link-container button:hover { background-color: #660000; }
-        .trakt-add-row { display: grid; grid-template-columns: 1fr auto auto auto auto; gap: 8px; margin-bottom: 12px; }
+        .trakt-add-row { display: grid; grid-template-columns: 1fr; gap: 8px; margin-bottom: 12px; }
+        .trakt-add-buttons { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
         .trakt-add-row input, .trakt-slot input { width: 100%; padding: 12px; border-radius: 6px; border: 1px solid #333; background: #2a2a2a; color: #fff; font-size: 14px; outline: none; box-sizing: border-box; }
-        .trakt-add-row button { padding: 0 12px; border: none; border-radius: 6px; background: #333; color: #fff; font-weight: 700; cursor: pointer; }
+        .trakt-add-row button { min-height: 42px; padding: 0 12px; border: none; border-radius: 6px; background: #333; color: #fff; font-weight: 700; cursor: pointer; }
         .trakt-add-row button:hover { background: #444; }
         .trakt-slot { margin-bottom: 12px; }
         .trakt-slot label { display: flex; justify-content: space-between; align-items: center; }
@@ -1652,10 +1653,12 @@ const configUI = `<!DOCTYPE html>
                 <label>Add Trakt Catalog</label>
                 <div class="trakt-add-row">
                     <input type="text" id="traktCatalogInput" placeholder="Public Trakt URL or username/list-slug">
-                    <button type="button" onclick="assignTraktCatalog('auto')">Auto</button>
-                    <button type="button" onclick="assignTraktCatalog('series')">Shows</button>
-                    <button type="button" onclick="assignTraktCatalog('movie')">Movies</button>
-                    <button type="button" onclick="assignTraktCatalog('theaters')">Theaters</button>
+                    <div class="trakt-add-buttons">
+                        <button type="button" onclick="assignTraktCatalog('auto')">Auto</button>
+                        <button type="button" onclick="assignTraktCatalog('series')">Shows</button>
+                        <button type="button" onclick="assignTraktCatalog('movie')">Movies</button>
+                        <button type="button" onclick="assignTraktCatalog('theaters')">Theaters</button>
+                    </div>
                 </div>
                 <div class="trakt-slot">
                     <label>Shows Catalog <button type="button" class="trakt-clear" onclick="clearTraktCatalog('series')">Clear</button></label>
@@ -1684,7 +1687,7 @@ const configUI = `<!DOCTYPE html>
                         <label><input type="checkbox" value="hi" onchange="handleLangChange(this)"> Hindi</label>
                     </div>
                 </div>
-                <label class="checkbox-group" for="digitalOnly"><input type="checkbox" id="digitalOnly" checked onchange="updateLink()"><span>Filter Movies Not Released Digitally</span></label>
+                <label class="checkbox-group" for="digitalOnly"><input type="checkbox" id="digitalOnly" onchange="updateLink()"><span>Filter Movies Not Released Digitally</span></label>
             </div>
             
             <div class="form-group">
