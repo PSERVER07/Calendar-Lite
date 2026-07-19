@@ -1860,11 +1860,11 @@ const configUI = `<!DOCTYPE html>
             </div>
             <div class="preview-section">
                 <h3 class="row-title" id="shows-title">Coming Soon Shows</h3>
-                <div id="shows-preview" class="horizontal-scroll"><div class="loading">Loading shows...</div></div>
+                <div id="shows-preview" class="horizontal-scroll"><div class="loading">Add a shows catalog to preview shows</div></div>
             </div>
             <div class="preview-section" style="margin-top: 20px;">
                 <h3 class="row-title" id="movies-title">Coming Soon Movies</h3>
-                <div id="movies-preview" class="horizontal-scroll"><div class="loading">Loading movies...</div></div>
+                <div id="movies-preview" class="horizontal-scroll"><div class="loading">Add a movies catalog to preview movies</div></div>
             </div>
             <div class="preview-section" style="margin-top: 20px;">
                 <h3 class="row-title" id="theaters-title">In Theaters</h3>
@@ -1897,7 +1897,8 @@ const configUI = `<!DOCTYPE html>
             let name = '';
             if (isTmdb) {
                 const listIndex = parts.findIndex(part => part.toLowerCase() === 'list');
-                const idPart = listIndex >= 0 ? parts[listIndex + 1] : parts.find(part => /^\d+/.test(part));
+                const rawTmdbId = raw.match(/^(?:tmdb:|tmdb\/|list\/)?(\d+(?:[-_][A-Za-z0-9_-]+)?)/i);
+                const idPart = listIndex >= 0 ? parts[listIndex + 1] : (parts.find(part => /^\d+/.test(part)) || (rawTmdbId ? rawTmdbId[1] : ''));
                 const slugPart = (idPart || '').replace(/^\d+[-_]?/, '');
                 name = slugPart || (idPart ? 'TMDB List ' + (idPart.match(/^\d+/) || [''])[0] : '');
             } else if (parts[0] === 'users' && parts[1]) {
@@ -1914,12 +1915,30 @@ const configUI = `<!DOCTYPE html>
         }
 
         function traktCatalogTarget(input) {
+            const raw = (input || '').trim().replace(/^@/, '');
+            let pathname = raw;
+            try {
+                pathname = new URL(raw).pathname;
+            } catch {
+                pathname = raw.startsWith('/') ? raw : '/' + raw;
+            }
+
+            const rawTokens = pathname
+                .split('/')
+                .filter(Boolean)
+                .flatMap(part => decodeURIComponent(part).toLowerCase().split(/[-_\s]+/))
+                .filter(Boolean);
             const words = traktCatalogDisplayName(input).toLowerCase().split(' ').filter(Boolean);
-            const lastWord = words[words.length - 1] || '';
-            if (['show', 'shows', 'series'].includes(lastWord)) return 'series';
-            if (['theater', 'theaters', 'theatre', 'theatres', 'cinema', 'cinemas'].includes(lastWord)) return 'theaters';
-            if (['movie', 'movies', 'film', 'films'].includes(lastWord)) return 'movie';
-            return '';
+            const tokens = [...rawTokens, ...words];
+            const lastWord = tokens[tokens.length - 1] || '';
+
+            if (tokens.some(word => ['theater', 'theaters', 'theatre', 'theatres', 'cinema', 'cinemas'].includes(word))) return 'theaters';
+            if (tokens.some(word => ['show', 'shows', 'series'].includes(word)) || ['show', 'shows', 'series'].includes(lastWord)) return 'series';
+            if (tokens.some(word => ['movie', 'movies', 'film', 'films'].includes(word)) || ['movie', 'movies', 'film', 'films'].includes(lastWord)) return 'movie';
+            if (/^(?:tmdb:|tmdb\/|(?:list\/)?\d+)/i.test(raw)) return 'movie';
+            if (/themoviedb\.org/i.test(raw)) return 'movie';
+
+            return 'movie';
         }
 
         function assignTraktCatalog(target) {
@@ -1935,7 +1954,7 @@ const configUI = `<!DOCTYPE html>
             } else if (resolvedTarget === 'theaters') {
                 document.getElementById('traktTheatersCatalog').value = value;
             } else {
-                document.getElementById('traktShowsCatalog').value = value;
+                document.getElementById('traktMoviesCatalog').value = value;
             }
 
             input.value = '';
