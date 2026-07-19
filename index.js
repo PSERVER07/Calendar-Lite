@@ -1767,7 +1767,6 @@ const configUI = `<!DOCTYPE html>
         .sub-option-label { display: block; margin: 14px 0 8px; font-weight: 600; font-size: 14px; color: #b3b3b3; }
         .sub-options { display: grid; gap: 8px; margin-bottom: 20px; }
         .sub-options .checkbox-group { margin-bottom: 0; padding-left: 18px; }
-        .build-marker { color: #777; font-size: 11px; text-align: center; margin-top: -10px; margin-bottom: 22px; }
         @media (max-width: 768px) {
             body { padding: 10px; height: auto; overflow: auto; }
             .wrapper { flex-direction: column; height: auto; }
@@ -1781,7 +1780,6 @@ const configUI = `<!DOCTYPE html>
     <div class="wrapper">
         <div class="container">
             <h2>Coming Soon</h2>
-            <div class="build-marker">Build ui-regexless-20260719</div>
 
             <div class="form-group">
                 <h3 style="color: #e0e0e0; margin: 0 0 15px 0; font-size: 16px; border-bottom: 1px solid #333; padding-bottom: 8px;">Catalog Filters</h3>
@@ -1879,7 +1877,6 @@ const configUI = `<!DOCTYPE html>
         let currentShows = [];
         let currentMovies = [];
         let currentTheaters = [];
-        console.log('Calendar-Lite UI build ui-regexless-20260719');
 
         function trimAt(input) {
             const value = (input || '').trim();
