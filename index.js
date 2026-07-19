@@ -1787,22 +1787,22 @@ const configUI = `<!DOCTYPE html>
                 <div class="trakt-add-row">
                     <input type="text" id="traktCatalogInput" placeholder="Public Trakt/TMDB list URL, TMDB list ID, or username/list-slug">
                     <div class="trakt-add-buttons">
-                        <button type="button" onclick="assignTraktCatalog('auto')">Auto</button>
-                        <button type="button" onclick="assignTraktCatalog('series')">Shows</button>
-                        <button type="button" onclick="assignTraktCatalog('movie')">Movies</button>
-                        <button type="button" onclick="assignTraktCatalog('theaters')">Theaters</button>
+                        <button type="button" data-catalog-target="auto">Auto</button>
+                        <button type="button" data-catalog-target="series">Shows</button>
+                        <button type="button" data-catalog-target="movie">Movies</button>
+                        <button type="button" data-catalog-target="theaters">Theaters</button>
                     </div>
                 </div>
                 <div class="trakt-slot">
-                    <label>Shows Catalog <button type="button" class="trakt-clear" onclick="clearTraktCatalog('series')">Clear</button></label>
+                    <label>Shows Catalog <button type="button" class="trakt-clear" data-clear-target="series">Clear</button></label>
                     <input type="text" id="traktShowsCatalog" placeholder="No shows catalog selected" oninput="updateLink()">
                 </div>
                 <div class="trakt-slot">
-                    <label>Movies Catalog <button type="button" class="trakt-clear" onclick="clearTraktCatalog('movie')">Clear</button></label>
+                    <label>Movies Catalog <button type="button" class="trakt-clear" data-clear-target="movie">Clear</button></label>
                     <input type="text" id="traktMoviesCatalog" placeholder="No movies catalog selected" oninput="updateLink()">
                 </div>
                 <div class="trakt-slot">
-                    <label>In Theaters Catalog <button type="button" class="trakt-clear" onclick="clearTraktCatalog('theaters')">Clear</button></label>
+                    <label>In Theaters Catalog <button type="button" class="trakt-clear" data-clear-target="theaters">Clear</button></label>
                     <input type="text" id="traktTheatersCatalog" placeholder="No in-theaters catalog selected" oninput="updateLink()">
                 </div>
                 <label>Language</label>
@@ -1975,6 +1975,20 @@ const configUI = `<!DOCTYPE html>
             updateLink();
         }
 
+        function bindCatalogButtons() {
+            document.querySelectorAll('[data-catalog-target]').forEach(button => {
+                button.addEventListener('click', function() {
+                    assignTraktCatalog(this.getAttribute('data-catalog-target'));
+                });
+            });
+
+            document.querySelectorAll('[data-clear-target]').forEach(button => {
+                button.addEventListener('click', function() {
+                    clearTraktCatalog(this.getAttribute('data-clear-target'));
+                });
+            });
+        }
+
         function updatePreviewTitles(showsCatalog, moviesCatalog, theatersCatalog) {
             document.getElementById('shows-title').textContent = traktCatalogDisplayName(showsCatalog) || 'Coming Soon Shows';
             document.getElementById('movies-title').textContent = traktCatalogDisplayName(moviesCatalog) || 'Coming Soon Movies';
@@ -2133,6 +2147,7 @@ const configUI = `<!DOCTYPE html>
                 setTimeout(() => { b.innerText = o; b.style.backgroundColor = "#8b0000" }, 2000);
             });
         }
+        bindCatalogButtons();
         updateLink();
     </script>
 </body>
