@@ -1923,13 +1923,14 @@ const configUI = `<!DOCTYPE html>
                 pathname = raw.startsWith('/') ? raw : '/' + raw;
             }
 
-            const rawTokens = pathname
-                .split('/')
-                .filter(Boolean)
-                .flatMap(part => decodeURIComponent(part).toLowerCase().split(/[-_\s]+/))
-                .filter(Boolean);
+            const rawTokens = [];
+            pathname.split('/').filter(Boolean).forEach(part => {
+                decodeURIComponent(part).toLowerCase().split(/[-_\\s]+/).filter(Boolean).forEach(token => {
+                    rawTokens.push(token);
+                });
+            });
             const words = traktCatalogDisplayName(input).toLowerCase().split(' ').filter(Boolean);
-            const tokens = [...rawTokens, ...words];
+            const tokens = rawTokens.concat(words);
             const lastWord = tokens[tokens.length - 1] || '';
 
             if (tokens.some(word => ['theater', 'theaters', 'theatre', 'theatres', 'cinema', 'cinemas'].includes(word))) return 'theaters';
@@ -1946,7 +1947,14 @@ const configUI = `<!DOCTYPE html>
             const value = input.value.trim();
             if (!value) return;
 
-            const resolvedTarget = target === 'auto' ? traktCatalogTarget(value) : target;
+            let resolvedTarget = target;
+            if (target === 'auto') {
+                try {
+                    resolvedTarget = traktCatalogTarget(value);
+                } catch {
+                    resolvedTarget = 'movie';
+                }
+            }
             if (resolvedTarget === 'series') {
                 document.getElementById('traktShowsCatalog').value = value;
             } else if (resolvedTarget === 'movie') {
