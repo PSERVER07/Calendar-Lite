@@ -30,6 +30,7 @@ const TMDB_CACHE_TTL_MS = 10 * 60 * 1000;
 const TRAKT_CACHE_TTL_MS = 10 * 60 * 1000;
 const TVMAZE_CACHE_TTL_MS = 10 * 60 * 1000;
 const CACHE_DIR = path.join(__dirname, "image-cache");
+const IMAGE_FETCH_TIMEOUT_MS = 12000;
 
 if (!fs.existsSync(CACHE_DIR)) {
     fs.mkdirSync(CACHE_DIR, { recursive: true });
@@ -62,6 +63,33 @@ async function fetchTmdbJson(url) {
         tmdbCache.delete(oldestKey);
     }
     return data;
+}
+
+function wait(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function fetchImageBuffer(url, options = {}) {
+    const retries = options.retries ?? 2;
+    const timeoutMs = options.timeoutMs ?? IMAGE_FETCH_TIMEOUT_MS;
+    let lastError = null;
+
+    for (let attempt = 0; attempt <= retries; attempt += 1) {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), timeoutMs);
+        try {
+            const res = await fetch(url, { signal: controller.signal });
+            if (!res.ok) throw new Error(`Image fetch failed: ${res.status} ${res.statusText}`);
+            return Buffer.from(await res.arrayBuffer());
+        } catch (error) {
+            lastError = error;
+            if (attempt < retries) await wait(350 * (attempt + 1));
+        } finally {
+            clearTimeout(timeout);
+        }
+    }
+
+    throw lastError;
 }
 
 async function fetchTvmazeJson(url) {
@@ -782,10 +810,7 @@ async function buildTagComposites(imageBuffer, metadata, tagText, heightRatio, f
  */
 async function buildLogoComposite(logoPath, isNetwork, logoWidth, topOffset, rightEdge, rightPad) {
     try {
-        const res = await fetch(`https://image.tmdb.org/t/p/w154${logoPath}`);
-        if (!res.ok) return null;
-
-        const buf = Buffer.from(await res.arrayBuffer());
+        const buf = await fetchImageBuffer(`https://image.tmdb.org/t/p/w154${logoPath}`, { retries: 1 });
         let resized = await sharp(buf)
             .resize({ width: logoWidth, withoutEnlargement: true })
             .png()
@@ -1236,14 +1261,15 @@ app.get(
             }
 
             // ── 2. Fetch backdrop image + provider logo in parallel ───────────
-            const [backdropBuffer, logoCompositeResult] = await Promise.all([
-                fetch(`https://image.tmdb.org/t/p/w1280${backdrop.file_path}`)
-                    .then(r => r.arrayBuffer())
-                    .then(ab => Buffer.from(ab)),
-                logoInfo
-                    ? (async () => { /* placeholder — computed after we know image dimensions */ return logoInfo; })()
-                    : Promise.resolve(null)
-            ]);
+            const backdropUrl = `https://image.tmdb.org/t/p/w1280${backdrop.file_path}`;
+            let backdropBuffer;
+            try {
+                backdropBuffer = await fetchImageBuffer(backdropUrl);
+            } catch (error) {
+                console.warn("Backdrop fetch timed out; redirecting to TMDB image:", error.message);
+                return res.redirect(302, backdropUrl);
+            }
+            const logoCompositeResult = logoInfo;
 
             const backdropImage = sharp(backdropBuffer);
             const metadata = await backdropImage.metadata();
@@ -1305,9 +1331,7 @@ app.get(
                 titleLogo
                     ? (async () => {
                         try {
-                            const res = await fetch(`https://image.tmdb.org/t/p/original${titleLogo.file_path}`);
-                            if (!res.ok) return null;
-                            const buf = Buffer.from(await res.arrayBuffer());
+                            const buf = await fetchImageBuffer(`https://image.tmdb.org/t/p/original${titleLogo.file_path}`, { retries: 1 });
                             const targetWidth = Math.round(width * 0.50);
                             const maxHeight = Math.round(metadata.height * 0.50);
                             let resized = await sharp(buf)
@@ -1427,9 +1451,14 @@ app.get(
             }
 
             // ── 2. Fetch poster image (logo fetch is deferred until we have width) ──
-            const posterBuffer = await fetch(`https://image.tmdb.org/t/p/w500${poster.file_path}`)
-                .then(r => r.arrayBuffer())
-                .then(ab => Buffer.from(ab));
+            const posterUrl = `https://image.tmdb.org/t/p/w500${poster.file_path}`;
+            let posterBuffer;
+            try {
+                posterBuffer = await fetchImageBuffer(posterUrl);
+            } catch (error) {
+                console.warn("Poster fetch timed out; redirecting to TMDB image:", error.message);
+                return res.redirect(302, posterUrl);
+            }
 
             const posterImage = sharp(posterBuffer);
             const metadata = await posterImage.metadata();
