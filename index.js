@@ -21,7 +21,7 @@ const TMDB_READ_ACCESS_TOKEN = cleanEnvValue(process.env.TMDB_READ_ACCESS_TOKEN)
 const TRAKT_CLIENT_ID = cleanEnvValue(process.env.TRAKT_CLIENT_ID);
 const TRAKT_ACCESS_TOKEN = cleanEnvValue(process.env.TRAKT_ACCESS_TOKEN).replace(/^Bearer\s+/i, "");
 const ADDON_URL = cleanEnvValue(process.env.ADDON_URL);
-const IMAGE_VERSION = "20260721-logo-box";
+const IMAGE_VERSION = "20260721-logo-provider-overrides";
 
 const imageCache = new Map();
 const tmdbCache = new Map();
@@ -796,7 +796,7 @@ function resolveProviderLogoInfo(tmdbType, details) {
                 const pName = cleanString(p.provider_name);
                 return pName.includes(targetProvider) || targetProvider.includes(pName);
             });
-            if (matched) return { path: matched.logo_path, isNetwork: false };
+            if (matched) return { path: matched.logo_path, isNetwork: false, provider: cleanString(matched.provider_name) };
         }
     }
 
@@ -810,15 +810,31 @@ function resolveProviderLogoInfo(tmdbType, details) {
         if (!best) {
             best = validFlatrate.find(p => !cleanString(p.provider_name).includes('amazon')) || validFlatrate[0];
         }
-        return { path: best.logo_path, isNetwork: false };
+        return { path: best.logo_path, isNetwork: false, provider: cleanString(best.provider_name) };
     }
 
     // 3. Fallback: raw network logo
     if (tmdbType === 'tv' && details.networks?.length > 0) {
-        return { path: details.networks[0].logo_path, isNetwork: true };
+        return { path: details.networks[0].logo_path, isNetwork: true, provider: cleanString(details.networks[0].name) };
     }
 
     return null;
+}
+
+function logoPlacement(baseWidth, baseTop, baseRightPad, provider) {
+    const cleanedProvider = provider || "";
+    if (cleanedProvider.includes("peacock")) {
+        return {
+            width: Math.round(baseWidth * 1.25),
+            top: Math.round(baseTop * 1.15),
+            rightPad: Math.round(baseRightPad * 1.30)
+        };
+    }
+    return {
+        width: baseWidth,
+        top: baseTop,
+        rightPad: baseRightPad
+    };
 }
 
 /**
@@ -952,12 +968,12 @@ async function buildTagComposites(imageBuffer, metadata, tagText, heightRatio, f
 }
 
 /**
- * Fetch, resize, and center a provider logo inside a consistent badge box.
+ * Fetch, resize, and optionally round-corner a provider logo.
  * Returns a composite operation object, or null on failure.
  *
  * @param {string}  logoPath   - TMDB logo_path
  * @param {boolean} isNetwork  - Skip rounding for raw network logos
- * @param {number}  logoWidth  - Badge box width
+ * @param {number}  logoWidth  - Target pixel width
  * @param {number}  topOffset  - Composite top position
  * @param {number}  rightEdge  - Full image width (used to compute left position)
  * @param {number}  rightPad   - Padding from right edge
@@ -965,39 +981,29 @@ async function buildTagComposites(imageBuffer, metadata, tagText, heightRatio, f
 async function buildLogoComposite(logoPath, isNetwork, logoWidth, topOffset, rightEdge, rightPad) {
     try {
         const buf = await fetchImageBuffer(`https://image.tmdb.org/t/p/w154${logoPath}`, { retries: 1 });
-        const badgeWidth = logoWidth;
-        const badgeHeight = Math.round(badgeWidth * 0.70);
-        const innerPad = Math.max(2, Math.round(badgeWidth * 0.10));
-        const innerWidth = badgeWidth - innerPad * 2;
-        const innerHeight = badgeHeight - innerPad * 2;
-
-        const resized = await sharp(buf)
-            .resize({
-                width: innerWidth,
-                height: innerHeight,
-                fit: 'inside',
-                withoutEnlargement: true
-            })
+        let resized = await sharp(buf)
+            .resize({ width: logoWidth, withoutEnlargement: true })
             .png()
             .toBuffer();
 
         const meta = await sharp(resized).metadata();
-        const logoLeft = Math.round((badgeWidth - meta.width) / 2);
-        const logoTop = Math.round((badgeHeight - meta.height) / 2);
-        const radius = isNetwork ? 0 : Math.round(badgeWidth * 0.18);
-        const badgeSvg = Buffer.from(`<svg width="${badgeWidth}" height="${badgeHeight}">
-            <rect x="0" y="0" width="${badgeWidth}" height="${badgeHeight}"
-                  rx="${radius}" ry="${radius}" fill="black" fill-opacity="0.88"/>
-        </svg>`);
-        const badge = await sharp(badgeSvg)
-            .composite([{ input: resized, left: logoLeft, top: logoTop }])
-            .png()
-            .toBuffer();
+
+        if (!isNetwork) {
+            const maskRadius = Math.round(logoWidth * 0.2);
+            const mask = Buffer.from(`<svg width="${meta.width}" height="${meta.height}">
+                <rect x="0" y="0" width="${meta.width}" height="${meta.height}"
+                      rx="${maskRadius}" ry="${maskRadius}" fill="white"/>
+            </svg>`);
+            resized = await sharp(resized)
+                .composite([{ input: mask, blend: 'dest-in' }])
+                .png()
+                .toBuffer();
+        }
 
         return {
-            input: badge,
+            input: resized,
             top: topOffset,
-            left: Math.round(rightEdge - badgeWidth - rightPad)
+            left: Math.round(rightEdge - meta.width - rightPad)
         };
     } catch (e) {
         console.error("Provider logo error:", e);
@@ -1518,6 +1524,14 @@ app.get(
             }
 
             // ── 4. Tag composites + logo fetch run in parallel ────────────────
+            const backdropLogoPlacement = logoInfo
+                ? logoPlacement(
+                    Math.round(width * 0.10),
+                    Math.round(metadata.height * 0.04),
+                    Math.round(metadata.height * 0.04),
+                    logoInfo.provider
+                )
+                : null;
             const [tagComposites, logoComposite, titleLogoComposite] = await Promise.all([
                 drawTag
                     ? buildTagComposites(backdropBuffer, metadata, tagText, 0.15, 0.75)
@@ -1526,10 +1540,10 @@ app.get(
                     ? buildLogoComposite(
                         logoInfo.path,
                         logoInfo.isNetwork,
-                        Math.round(width * 0.10),
-                        Math.round(metadata.height * 0.04),
+                        backdropLogoPlacement.width,
+                        backdropLogoPlacement.top,
                         width,
-                        Math.round(metadata.height * 0.04)
+                        backdropLogoPlacement.rightPad
                     )
                     : Promise.resolve(null),
                 titleLogo
@@ -1707,6 +1721,14 @@ app.get(
             }
 
             // ── 4. Tag composites + logo fetch run in parallel ────────────────
+            const posterLogoPlacement = logoInfo
+                ? logoPlacement(
+                    Math.round(width * 0.15),
+                    Math.round(width * 0.04),
+                    Math.round(width * 0.04),
+                    logoInfo.provider
+                )
+                : null;
             const [tagComposites, logoComposite] = await Promise.all([
                 drawTag
                     ? buildTagComposites(posterBuffer, metadata, tagText, 0.08, 0.60)
@@ -1715,10 +1737,10 @@ app.get(
                     ? buildLogoComposite(
                         logoInfo.path,
                         logoInfo.isNetwork,
-                        Math.round(width * 0.15),
-                        Math.round(width * 0.04),
+                        posterLogoPlacement.width,
+                        posterLogoPlacement.top,
                         width,
-                        Math.round(width * 0.04)
+                        posterLogoPlacement.rightPad
                     )
                     : Promise.resolve(null)
             ]);
