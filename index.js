@@ -477,7 +477,8 @@ function dateOnlyInTimeZone(value, timeZone = "America/New_York") {
 function normalizeEpisodeDate(value) {
     if (!value) return null;
     const dateValue = String(value);
-    return dateValue.includes("T") ? dateOnlyInTimeZone(dateValue) : releaseDateOnly(dateValue);
+    const datePart = dateValue.includes("T") ? dateValue.split("T")[0] : dateValue;
+    return releaseDateOnly(datePart);
 }
 
 function sourceDateOnlyEpisodeDate(value) {
