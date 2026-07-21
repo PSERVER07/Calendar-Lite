@@ -21,7 +21,7 @@ const TMDB_READ_ACCESS_TOKEN = cleanEnvValue(process.env.TMDB_READ_ACCESS_TOKEN)
 const TRAKT_CLIENT_ID = cleanEnvValue(process.env.TRAKT_CLIENT_ID);
 const TRAKT_ACCESS_TOKEN = cleanEnvValue(process.env.TRAKT_ACCESS_TOKEN).replace(/^Bearer\s+/i, "");
 const ADDON_URL = cleanEnvValue(process.env.ADDON_URL);
-const IMAGE_VERSION = "20260721-peacock-square";
+const IMAGE_VERSION = "20260721-peacock-wordmark";
 
 const imageCache = new Map();
 const tmdbCache = new Map();
@@ -825,9 +825,9 @@ function logoPlacement(baseWidth, baseTop, baseRightPad, provider) {
     const cleanedProvider = provider || "";
     if (cleanedProvider.includes("peacock")) {
         return {
-            width: baseWidth,
+            width: Math.round(baseWidth * 1.08),
             top: baseTop,
-            rightPad: baseRightPad
+            rightPad: Math.round(baseRightPad * 1.45)
         };
     }
     return {
@@ -983,9 +983,10 @@ async function buildLogoComposite(logoPath, isNetwork, logoWidth, topOffset, rig
     try {
         const buf = await fetchImageBuffer(`https://image.tmdb.org/t/p/w154${logoPath}`, { retries: 1 });
         if ((provider || "").includes("peacock")) {
-            const badgeSize = logoWidth;
-            const logoMaxWidth = Math.round(badgeSize * 0.76);
-            const logoMaxHeight = Math.round(badgeSize * 0.46);
+            const badgeWidth = Math.round(logoWidth * 2.05);
+            const badgeHeight = Math.round(logoWidth * 0.72);
+            const logoMaxWidth = Math.round(badgeWidth * 0.84);
+            const logoMaxHeight = Math.round(badgeHeight * 0.56);
             const peacockLogo = await sharp(buf)
                 .resize({
                     width: logoMaxWidth,
@@ -996,16 +997,16 @@ async function buildLogoComposite(logoPath, isNetwork, logoWidth, topOffset, rig
                 .png()
                 .toBuffer();
             const peacockMeta = await sharp(peacockLogo).metadata();
-            const badgeRadius = Math.round(badgeSize * 0.22);
-            const badgeSvg = Buffer.from(`<svg width="${badgeSize}" height="${badgeSize}">
-                <rect x="0" y="0" width="${badgeSize}" height="${badgeSize}"
+            const badgeRadius = Math.round(badgeHeight * 0.25);
+            const badgeSvg = Buffer.from(`<svg width="${badgeWidth}" height="${badgeHeight}">
+                <rect x="0" y="0" width="${badgeWidth}" height="${badgeHeight}"
                       rx="${badgeRadius}" ry="${badgeRadius}" fill="black" fill-opacity="0.92"/>
             </svg>`);
             const badge = await sharp(badgeSvg)
                 .composite([{
                     input: peacockLogo,
-                    left: Math.round((badgeSize - peacockMeta.width) / 2),
-                    top: Math.round((badgeSize - peacockMeta.height) / 2)
+                    left: Math.round((badgeWidth - peacockMeta.width) / 2),
+                    top: Math.round((badgeHeight - peacockMeta.height) / 2)
                 }])
                 .png()
                 .toBuffer();
@@ -1013,7 +1014,7 @@ async function buildLogoComposite(logoPath, isNetwork, logoWidth, topOffset, rig
             return {
                 input: badge,
                 top: topOffset,
-                left: Math.round(rightEdge - badgeSize - rightPad)
+                left: Math.round(rightEdge - badgeWidth - rightPad)
             };
         }
 
