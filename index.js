@@ -1092,7 +1092,6 @@ builder.defineCatalogHandler(async (args) => {
     const maxPages = 1;
     const catalogLimit = Infinity;
     const TODAY = new Date();
-    const CURRENT_MONTH_START = new Date(TODAY.getFullYear(), TODAY.getMonth(), 1);
 
     while (finalItems.length < catalogLimit && page <= maxPages) {
         const data = { results: await fetchCatalogTmdbSeeds(activePublicCatalog, type) };
@@ -1303,7 +1302,7 @@ builder.defineCatalogHandler(async (args) => {
                             itemTag = "new_series";
                         } else if (seasonAir && seasonAir <= TODAY && diffDays(TODAY, seasonAir) <= 3) {
                             itemTag = "new_season";
-                        } else if (isFinale && lastAir && lastAir <= TODAY && lastAir >= CURRENT_MONTH_START && diffDays(TODAY, lastAir) <= 30) {
+                        } else if (isFinale && lastAir && lastAir <= TODAY && diffDays(TODAY, lastAir) <= 30) {
                             if (tvData.status === "Ended" || tvData.status === "Canceled") {
                                 itemTag = "series_finale";
                             } else {
