@@ -21,6 +21,7 @@ const TMDB_READ_ACCESS_TOKEN = cleanEnvValue(process.env.TMDB_READ_ACCESS_TOKEN)
 const TRAKT_CLIENT_ID = cleanEnvValue(process.env.TRAKT_CLIENT_ID);
 const TRAKT_ACCESS_TOKEN = cleanEnvValue(process.env.TRAKT_ACCESS_TOKEN).replace(/^Bearer\s+/i, "");
 const ADDON_URL = cleanEnvValue(process.env.ADDON_URL);
+const IMAGE_VERSION = "20260721-logo-box";
 
 const imageCache = new Map();
 const tmdbCache = new Map();
@@ -951,12 +952,12 @@ async function buildTagComposites(imageBuffer, metadata, tagText, heightRatio, f
 }
 
 /**
- * Fetch, resize, and optionally round-corner a provider logo.
+ * Fetch, resize, and center a provider logo inside a consistent badge box.
  * Returns a composite operation object, or null on failure.
  *
  * @param {string}  logoPath   - TMDB logo_path
  * @param {boolean} isNetwork  - Skip rounding for raw network logos
- * @param {number}  logoWidth  - Target pixel width
+ * @param {number}  logoWidth  - Badge box width
  * @param {number}  topOffset  - Composite top position
  * @param {number}  rightEdge  - Full image width (used to compute left position)
  * @param {number}  rightPad   - Padding from right edge
@@ -964,29 +965,39 @@ async function buildTagComposites(imageBuffer, metadata, tagText, heightRatio, f
 async function buildLogoComposite(logoPath, isNetwork, logoWidth, topOffset, rightEdge, rightPad) {
     try {
         const buf = await fetchImageBuffer(`https://image.tmdb.org/t/p/w154${logoPath}`, { retries: 1 });
-        let resized = await sharp(buf)
-            .resize({ width: logoWidth, withoutEnlargement: true })
+        const badgeWidth = logoWidth;
+        const badgeHeight = Math.round(badgeWidth * 0.70);
+        const innerPad = Math.max(2, Math.round(badgeWidth * 0.10));
+        const innerWidth = badgeWidth - innerPad * 2;
+        const innerHeight = badgeHeight - innerPad * 2;
+
+        const resized = await sharp(buf)
+            .resize({
+                width: innerWidth,
+                height: innerHeight,
+                fit: 'inside',
+                withoutEnlargement: true
+            })
             .png()
             .toBuffer();
 
         const meta = await sharp(resized).metadata();
-
-        if (!isNetwork) {
-            const maskRadius = Math.round(logoWidth * 0.2);
-            const mask = Buffer.from(`<svg width="${meta.width}" height="${meta.height}">
-                <rect x="0" y="0" width="${meta.width}" height="${meta.height}"
-                      rx="${maskRadius}" ry="${maskRadius}" fill="white"/>
-            </svg>`);
-            resized = await sharp(resized)
-                .composite([{ input: mask, blend: 'dest-in' }])
-                .png()
-                .toBuffer();
-        }
+        const logoLeft = Math.round((badgeWidth - meta.width) / 2);
+        const logoTop = Math.round((badgeHeight - meta.height) / 2);
+        const radius = isNetwork ? 0 : Math.round(badgeWidth * 0.18);
+        const badgeSvg = Buffer.from(`<svg width="${badgeWidth}" height="${badgeHeight}">
+            <rect x="0" y="0" width="${badgeWidth}" height="${badgeHeight}"
+                  rx="${radius}" ry="${radius}" fill="black" fill-opacity="0.88"/>
+        </svg>`);
+        const badge = await sharp(badgeSvg)
+            .composite([{ input: resized, left: logoLeft, top: logoTop }])
+            .png()
+            .toBuffer();
 
         return {
-            input: resized,
+            input: badge,
             top: topOffset,
-            left: Math.round(rightEdge - meta.width - rightPad)
+            left: Math.round(rightEdge - badgeWidth - rightPad)
         };
     } catch (e) {
         console.error("Provider logo error:", e);
@@ -1351,7 +1362,7 @@ builder.defineCatalogHandler(async (args) => {
                 ? userConfig.portraitTheatersRanked
                 : userConfig.portraitMovieRanked;
         if (portraitRankedForCatalog || userConfig.portraitTags || portraitLogosForCatalog || userConfig.portraitPosterLang !== 'en') {
-            finalPosterUrl = `${userConfig.addonUrl}/proxy-image-poster/${type}/${item.id}/${pTag}/${portraitRankedForCatalog ? rank : 'none'}/${userConfig.portraitPosterLang}/${portraitLogosForCatalog ? '1' : '0'}.png`;
+            finalPosterUrl = `${userConfig.addonUrl}/proxy-image-poster/${type}/${item.id}/${pTag}/${portraitRankedForCatalog ? rank : 'none'}/${userConfig.portraitPosterLang}/${portraitLogosForCatalog ? '1' : '0'}.png?v=${IMAGE_VERSION}`;
         }
 
         let itemGenres = item.genre_ids ? item.genre_ids.map(gId => genreMap[gId]).filter(Boolean) : [];
