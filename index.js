@@ -21,7 +21,7 @@ const TMDB_READ_ACCESS_TOKEN = cleanEnvValue(process.env.TMDB_READ_ACCESS_TOKEN)
 const TRAKT_CLIENT_ID = cleanEnvValue(process.env.TRAKT_CLIENT_ID);
 const TRAKT_ACCESS_TOKEN = cleanEnvValue(process.env.TRAKT_ACCESS_TOKEN).replace(/^Bearer\s+/i, "");
 const ADDON_URL = cleanEnvValue(process.env.ADDON_URL);
-const IMAGE_VERSION = "20260721-logo-provider-overrides";
+const IMAGE_VERSION = "20260721-peacock-square";
 
 const imageCache = new Map();
 const tmdbCache = new Map();
@@ -825,9 +825,9 @@ function logoPlacement(baseWidth, baseTop, baseRightPad, provider) {
     const cleanedProvider = provider || "";
     if (cleanedProvider.includes("peacock")) {
         return {
-            width: Math.round(baseWidth * 1.25),
-            top: Math.round(baseTop * 1.15),
-            rightPad: Math.round(baseRightPad * 1.30)
+            width: baseWidth,
+            top: baseTop,
+            rightPad: baseRightPad
         };
     }
     return {
@@ -977,10 +977,46 @@ async function buildTagComposites(imageBuffer, metadata, tagText, heightRatio, f
  * @param {number}  topOffset  - Composite top position
  * @param {number}  rightEdge  - Full image width (used to compute left position)
  * @param {number}  rightPad   - Padding from right edge
+ * @param {string}  provider   - Clean provider name for targeted rendering
  */
-async function buildLogoComposite(logoPath, isNetwork, logoWidth, topOffset, rightEdge, rightPad) {
+async function buildLogoComposite(logoPath, isNetwork, logoWidth, topOffset, rightEdge, rightPad, provider = "") {
     try {
         const buf = await fetchImageBuffer(`https://image.tmdb.org/t/p/w154${logoPath}`, { retries: 1 });
+        if ((provider || "").includes("peacock")) {
+            const badgeSize = logoWidth;
+            const logoMaxWidth = Math.round(badgeSize * 0.76);
+            const logoMaxHeight = Math.round(badgeSize * 0.46);
+            const peacockLogo = await sharp(buf)
+                .resize({
+                    width: logoMaxWidth,
+                    height: logoMaxHeight,
+                    fit: 'inside',
+                    withoutEnlargement: true
+                })
+                .png()
+                .toBuffer();
+            const peacockMeta = await sharp(peacockLogo).metadata();
+            const badgeRadius = Math.round(badgeSize * 0.22);
+            const badgeSvg = Buffer.from(`<svg width="${badgeSize}" height="${badgeSize}">
+                <rect x="0" y="0" width="${badgeSize}" height="${badgeSize}"
+                      rx="${badgeRadius}" ry="${badgeRadius}" fill="black" fill-opacity="0.92"/>
+            </svg>`);
+            const badge = await sharp(badgeSvg)
+                .composite([{
+                    input: peacockLogo,
+                    left: Math.round((badgeSize - peacockMeta.width) / 2),
+                    top: Math.round((badgeSize - peacockMeta.height) / 2)
+                }])
+                .png()
+                .toBuffer();
+
+            return {
+                input: badge,
+                top: topOffset,
+                left: Math.round(rightEdge - badgeSize - rightPad)
+            };
+        }
+
         let resized = await sharp(buf)
             .resize({ width: logoWidth, withoutEnlargement: true })
             .png()
@@ -1543,7 +1579,8 @@ app.get(
                         backdropLogoPlacement.width,
                         backdropLogoPlacement.top,
                         width,
-                        backdropLogoPlacement.rightPad
+                        backdropLogoPlacement.rightPad,
+                        logoInfo.provider
                     )
                     : Promise.resolve(null),
                 titleLogo
@@ -1740,7 +1777,8 @@ app.get(
                         posterLogoPlacement.width,
                         posterLogoPlacement.top,
                         width,
-                        posterLogoPlacement.rightPad
+                        posterLogoPlacement.rightPad,
+                        logoInfo.provider
                     )
                     : Promise.resolve(null)
             ]);
