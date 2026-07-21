@@ -480,13 +480,28 @@ function normalizeEpisodeDate(value) {
     return dateValue.includes("T") ? dateOnlyInTimeZone(dateValue) : releaseDateOnly(dateValue);
 }
 
+function sourceDateOnlyEpisodeDate(value) {
+    if (!value) return null;
+    const dateValue = String(value);
+    const datePart = dateValue.includes("T") ? dateValue.split("T")[0] : dateValue;
+    return releaseDateOnly(datePart);
+}
+
+function trustedDateOnlyEpisode(episode) {
+    return Boolean(episode)
+        && (episode.source === "tvmaze" || episode.source === "tmdb")
+        && typeof episode.air_date === "string"
+        && !episode.air_date.includes("T");
+}
+
 function tmdbEpisodeFields(episode) {
     if (!episode) return null;
     return {
         air_date: episode.air_date,
         season_number: episode.season_number,
         episode_number: episode.episode_number,
-        episode_type: episode.episode_type
+        episode_type: episode.episode_type,
+        source: "tmdb"
     };
 }
 
@@ -496,17 +511,19 @@ function tvmazeEpisodeFields(episode) {
         air_date: episode.airdate,
         season_number: episode.season,
         episode_number: episode.number,
-        episode_type: episode.type === "finale" ? "finale" : null
+        episode_type: episode.type === "finale" ? "finale" : null,
+        source: "tvmaze"
     };
 }
 
 function traktEpisodeFields(episode) {
     if (!episode) return null;
     return {
-        air_date: episode.first_aired,
+        air_date: episode.first_aired ? String(episode.first_aired).split("T")[0] : null,
         season_number: episode.season,
         episode_number: episode.number,
-        episode_type: episode.episode_type || null
+        episode_type: episode.episode_type || null,
+        source: "trakt"
     };
 }
 
@@ -557,12 +574,14 @@ function mergeEpisodeTimelines(timelines, today) {
         .flatMap(timeline => timeline.episodes || [timeline.lastEp, timeline.nextEp])
         .filter(Boolean)
         .forEach(episode => {
-            const date = normalizeEpisodeDate(episode.air_date);
+            const date = sourceDateOnlyEpisodeDate(episode.air_date);
             if (!date) return;
             const key = episodeKey(episode) || `${episode.air_date}:${episode.name || ""}`;
             const current = episodeMap.get(key);
-            const currentDate = current ? normalizeEpisodeDate(current.air_date) : null;
-            if (!current || date < currentDate) {
+            const currentDate = current ? sourceDateOnlyEpisodeDate(current.air_date) : null;
+            const preferTrustedDateOnly = trustedDateOnlyEpisode(episode) && !trustedDateOnlyEpisode(current);
+            const sameTrustLevel = trustedDateOnlyEpisode(episode) === trustedDateOnlyEpisode(current);
+            if (!current || preferTrustedDateOnly || (sameTrustLevel && date < currentDate)) {
                 episodeMap.set(key, episode);
             }
         });
