@@ -699,20 +699,35 @@ async function fetchGenres() {
 }
 fetchGenres();
 
+const DEFAULT_CATALOGS = {
+    movies: "Coming Soon Movies",
+    shows: "Coming Soon Shows",
+    theaters: "In Theaters"
+};
+
+function displayNameConfigValue(value, fallback) {
+    const cleaned = cleanEnvValue(value);
+    return cleaned || fallback;
+}
+
+function configuredCatalogs(config = {}) {
+    return [
+        { id: "calendar_lite_movies", type: "movie", name: displayNameConfigValue(config.moviesDisplayName, DEFAULT_CATALOGS.movies) },
+        { id: "calendar_lite_shows", type: "series", name: displayNameConfigValue(config.showsDisplayName, DEFAULT_CATALOGS.shows) },
+        { id: "calendar_lite_theaters", type: "movie", name: displayNameConfigValue(config.theatersDisplayName, DEFAULT_CATALOGS.theaters) }
+    ];
+}
+
 const manifest = {
     id: "com.pserver.calendar-lite",
-    version: "1.12.2",
+    version: "1.12.3",
     name: "Coming Soon",
     description: "Customizable Stremio catalogs for upcoming and recently released content with optional graphic tags and public Trakt or TMDB lists.",
     behaviorHints: { configurable: true, configurationRequired: true },
     resources: ["catalog"],
     types: ["movie", "series"],
     idPrefixes: ["tmdb:"],
-    catalogs: [
-        { id: "calendar_lite_movies", type: "movie", name: "Coming Soon Movies" },
-        { id: "calendar_lite_shows", type: "series", name: "Coming Soon Shows" },
-        { id: "calendar_lite_theaters", type: "movie", name: "In Theaters" }
-    ]
+    catalogs: configuredCatalogs()
 };
 
 const builder = new addonBuilder(manifest);
@@ -1822,6 +1837,7 @@ const configUI = `<!DOCTYPE html>
         .trakt-add-row { display: grid; grid-template-columns: 1fr; gap: 8px; margin-bottom: 12px; }
         .trakt-add-buttons { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
         .trakt-add-row input, .trakt-slot input { width: 100%; padding: 12px; border-radius: 6px; border: 1px solid #333; background: #2a2a2a; color: #fff; font-size: 14px; outline: none; box-sizing: border-box; }
+        .trakt-slot input + input { margin-top: 8px; }
         .trakt-add-row button { min-height: 42px; padding: 0 12px; border: none; border-radius: 6px; background: #333; color: #fff; font-weight: 700; cursor: pointer; }
         .trakt-add-row button:hover { background: #444; }
         .trakt-slot { margin-bottom: 12px; }
@@ -1895,14 +1911,17 @@ const configUI = `<!DOCTYPE html>
                 <div class="trakt-slot">
                     <label>Shows Catalog <button type="button" class="trakt-clear" data-clear-target="series">Clear</button></label>
                     <input type="text" id="traktShowsCatalog" placeholder="No shows catalog selected" oninput="updateLink()">
+                    <input type="text" id="showsDisplayName" placeholder="Display name: Coming Soon Shows" oninput="updateLink()">
                 </div>
                 <div class="trakt-slot">
                     <label>Movies Catalog <button type="button" class="trakt-clear" data-clear-target="movie">Clear</button></label>
                     <input type="text" id="traktMoviesCatalog" placeholder="No movies catalog selected" oninput="updateLink()">
+                    <input type="text" id="moviesDisplayName" placeholder="Display name: Coming Soon Movies" oninput="updateLink()">
                 </div>
                 <div class="trakt-slot">
                     <label>In Theaters Catalog <button type="button" class="trakt-clear" data-clear-target="theaters">Clear</button></label>
                     <input type="text" id="traktTheatersCatalog" placeholder="No in-theaters catalog selected" oninput="updateLink()">
+                    <input type="text" id="theatersDisplayName" placeholder="Display name: In Theaters" oninput="updateLink()">
                 </div>
                 <label>Language</label>
                 <div class="multi-select" id="listLangSelect">
@@ -2147,10 +2166,10 @@ const configUI = `<!DOCTYPE html>
             });
         }
 
-        function updatePreviewTitles(showsCatalog, moviesCatalog, theatersCatalog, tmdbTrending) {
-            document.getElementById('shows-title').textContent = traktCatalogDisplayName(showsCatalog) || (tmdbTrending ? 'TMDB Top 10 Trending Shows Today' : 'Coming Soon Shows');
-            document.getElementById('movies-title').textContent = traktCatalogDisplayName(moviesCatalog) || (tmdbTrending ? 'TMDB Top 10 Trending Streaming Movies Today' : 'Coming Soon Movies');
-            document.getElementById('theaters-title').textContent = traktCatalogDisplayName(theatersCatalog) || 'In Theaters';
+        function updatePreviewTitles(showsCatalog, moviesCatalog, theatersCatalog, tmdbTrending, showsDisplayName, moviesDisplayName, theatersDisplayName) {
+            document.getElementById('shows-title').textContent = showsDisplayName || traktCatalogDisplayName(showsCatalog) || (tmdbTrending ? 'TMDB Top 10 Trending Shows Today' : 'Coming Soon Shows');
+            document.getElementById('movies-title').textContent = moviesDisplayName || traktCatalogDisplayName(moviesCatalog) || (tmdbTrending ? 'TMDB Top 10 Trending Streaming Movies Today' : 'Coming Soon Movies');
+            document.getElementById('theaters-title').textContent = theatersDisplayName || traktCatalogDisplayName(theatersCatalog) || 'In Theaters';
         }
 
         function toggleMultiSelect() {
@@ -2193,9 +2212,12 @@ const configUI = `<!DOCTYPE html>
                   d = document.getElementById('digitalOnly').checked,
                   traktShows = document.getElementById('traktShowsCatalog').value.trim(),
                   traktMovies = document.getElementById('traktMoviesCatalog').value.trim(),
-                  traktTheaters = document.getElementById('traktTheatersCatalog').value.trim();
+                  traktTheaters = document.getElementById('traktTheatersCatalog').value.trim(),
+                  showsDisplayName = document.getElementById('showsDisplayName').value.trim(),
+                  moviesDisplayName = document.getElementById('moviesDisplayName').value.trim(),
+                  theatersDisplayName = document.getElementById('theatersDisplayName').value.trim();
 
-            updatePreviewTitles(traktShows, traktMovies, traktTheaters, tmdbTrending);
+            updatePreviewTitles(traktShows, traktMovies, traktTheaters, tmdbTrending, showsDisplayName, moviesDisplayName, theatersDisplayName);
                   
             const checkedLangs = Array.from(document.querySelectorAll('#listLangOptions input:checked'));
             const l = checkedLangs.map(opt => opt.value).join(',') || 'all';
@@ -2208,9 +2230,12 @@ const configUI = `<!DOCTYPE html>
             const traktShowsPart = traktShows ? "|traktShowsCatalog=" + encodeURIComponent(traktShows) : "";
             const traktMoviesPart = traktMovies ? "|traktMoviesCatalog=" + encodeURIComponent(traktMovies) : "";
             const traktTheatersPart = traktTheaters ? "|traktTheatersCatalog=" + encodeURIComponent(traktTheaters) : "";
+            const showsDisplayNamePart = showsDisplayName ? "|showsDisplayName=" + encodeURIComponent(showsDisplayName) : "";
+            const moviesDisplayNamePart = moviesDisplayName ? "|moviesDisplayName=" + encodeURIComponent(moviesDisplayName) : "";
+            const theatersDisplayNamePart = theatersDisplayName ? "|theatersDisplayName=" + encodeURIComponent(theatersDisplayName) : "";
             const anyPortraitLogos = pmlo || pslo || ptlo;
             const anyPortraitRanked = pmranked || psranked || ptranked;
-            const c = "landscapeTags=false|landscapeLogos=false|landscapeRanked=false|portraitTags=" + pt + "|tmdbTrendingToday=" + tmdbTrending + "|portraitLogos=" + anyPortraitLogos + "|portraitMovieLogos=" + pmlo + "|portraitSeriesLogos=" + pslo + "|portraitTheatersLogos=" + ptlo + "|portraitRanked=" + anyPortraitRanked + "|portraitMovieRanked=" + pmranked + "|portraitSeriesRanked=" + psranked + "|portraitTheatersRanked=" + ptranked + "|movieTop10Only=" + movieTop10 + "|seriesTop10Only=" + seriesTop10 + "|posterLang=" + plang + "|digitalOnly=" + d + "|listLang=" + l + traktShowsPart + traktMoviesPart + traktTheatersPart;
+            const c = "landscapeTags=false|landscapeLogos=false|landscapeRanked=false|portraitTags=" + pt + "|tmdbTrendingToday=" + tmdbTrending + "|portraitLogos=" + anyPortraitLogos + "|portraitMovieLogos=" + pmlo + "|portraitSeriesLogos=" + pslo + "|portraitTheatersLogos=" + ptlo + "|portraitRanked=" + anyPortraitRanked + "|portraitMovieRanked=" + pmranked + "|portraitSeriesRanked=" + psranked + "|portraitTheatersRanked=" + ptranked + "|movieTop10Only=" + movieTop10 + "|seriesTop10Only=" + seriesTop10 + "|posterLang=" + plang + "|digitalOnly=" + d + "|listLang=" + l + traktShowsPart + traktMoviesPart + traktTheatersPart + showsDisplayNamePart + moviesDisplayNamePart + theatersDisplayNamePart;
             const h = window.location.host, pr = window.location.protocol;
             
             document.getElementById('manifestUrl').value = pr + "//" + h + "/" + c + "/manifest.json";
@@ -2349,8 +2374,10 @@ app.get('/', (req, res) => res.send(configUI));
 app.get('/configure', (req, res) => res.send(configUI));
 app.get('/manifest.json', (req, res) => res.json(addonInterface.manifest));
 app.get('/:config/manifest.json', (req, res) => {
+    const config = parseConfig(req.params.config);
     const configuredManifest = JSON.parse(JSON.stringify(addonInterface.manifest));
     if (configuredManifest.behaviorHints) configuredManifest.behaviorHints.configurationRequired = false;
+    configuredManifest.catalogs = configuredCatalogs(config);
     res.json(configuredManifest);
 });
 
