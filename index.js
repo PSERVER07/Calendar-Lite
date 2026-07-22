@@ -21,7 +21,7 @@ const TMDB_READ_ACCESS_TOKEN = cleanEnvValue(process.env.TMDB_READ_ACCESS_TOKEN)
 const TRAKT_CLIENT_ID = cleanEnvValue(process.env.TRAKT_CLIENT_ID);
 const TRAKT_ACCESS_TOKEN = cleanEnvValue(process.env.TRAKT_ACCESS_TOKEN).replace(/^Bearer\s+/i, "");
 const ADDON_URL = cleanEnvValue(process.env.ADDON_URL);
-const IMAGE_VERSION = "20260721-peacock-padding";
+const IMAGE_VERSION = "20260721-peacock-smaller";
 
 const imageCache = new Map();
 const tmdbCache = new Map();
@@ -825,7 +825,7 @@ function logoPlacement(baseWidth, baseTop, baseRightPad, provider) {
     const cleanedProvider = provider || "";
     if (cleanedProvider.includes("peacock")) {
         return {
-            width: baseWidth,
+            width: Math.round(baseWidth * 0.88),
             top: baseTop,
             rightPad: Math.round(baseRightPad * 2.25)
         };
