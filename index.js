@@ -21,7 +21,7 @@ const TMDB_READ_ACCESS_TOKEN = cleanEnvValue(process.env.TMDB_READ_ACCESS_TOKEN)
 const TRAKT_CLIENT_ID = cleanEnvValue(process.env.TRAKT_CLIENT_ID);
 const TRAKT_ACCESS_TOKEN = cleanEnvValue(process.env.TRAKT_ACCESS_TOKEN).replace(/^Bearer\s+/i, "");
 const ADDON_URL = cleanEnvValue(process.env.ADDON_URL);
-const IMAGE_VERSION = "20260721-peacock-wordmark";
+const IMAGE_VERSION = "20260721-peacock-custom";
 
 const imageCache = new Map();
 const tmdbCache = new Map();
@@ -981,35 +981,32 @@ async function buildTagComposites(imageBuffer, metadata, tagText, heightRatio, f
  */
 async function buildLogoComposite(logoPath, isNetwork, logoWidth, topOffset, rightEdge, rightPad, provider = "") {
     try {
-        const buf = await fetchImageBuffer(`https://image.tmdb.org/t/p/w154${logoPath}`, { retries: 1 });
         if ((provider || "").includes("peacock")) {
-            const badgeWidth = Math.round(logoWidth * 2.05);
-            const badgeHeight = Math.round(logoWidth * 0.72);
-            const logoMaxWidth = Math.round(badgeWidth * 0.84);
-            const logoMaxHeight = Math.round(badgeHeight * 0.56);
-            const peacockLogo = await sharp(buf)
-                .resize({
-                    width: logoMaxWidth,
-                    height: logoMaxHeight,
-                    fit: 'inside',
-                    withoutEnlargement: true
-                })
-                .png()
-                .toBuffer();
-            const peacockMeta = await sharp(peacockLogo).metadata();
-            const badgeRadius = Math.round(badgeHeight * 0.25);
+            const badgeWidth = Math.round(logoWidth * 2.25);
+            const badgeHeight = Math.round(logoWidth * 0.78);
+            const badgeRadius = Math.round(badgeHeight * 0.28);
+            const fontSize = Math.round(badgeHeight * 0.44);
+            const textX = Math.round(badgeWidth * 0.12);
+            const textY = Math.round(badgeHeight * 0.63);
+            const dotRadius = Math.max(1, Math.round(badgeHeight * 0.055));
+            const dotStartX = Math.round(badgeWidth * 0.70);
+            const dotY = Math.round(badgeHeight * 0.50);
+            const dotGap = Math.round(dotRadius * 2.6);
             const badgeSvg = Buffer.from(`<svg width="${badgeWidth}" height="${badgeHeight}">
                 <rect x="0" y="0" width="${badgeWidth}" height="${badgeHeight}"
                       rx="${badgeRadius}" ry="${badgeRadius}" fill="black" fill-opacity="0.92"/>
+                <text x="${textX}" y="${textY}"
+                      font-family="Arial, Helvetica, sans-serif"
+                      font-size="${fontSize}" font-weight="700"
+                      fill="white">peacock</text>
+                <circle cx="${dotStartX}" cy="${dotY}" r="${dotRadius}" fill="#f5c518"/>
+                <circle cx="${dotStartX + dotGap}" cy="${dotY}" r="${dotRadius}" fill="#f37021"/>
+                <circle cx="${dotStartX + dotGap * 2}" cy="${dotY}" r="${dotRadius}" fill="#e50914"/>
+                <circle cx="${dotStartX + dotGap * 3}" cy="${dotY}" r="${dotRadius}" fill="#b11383"/>
+                <circle cx="${dotStartX + dotGap * 4}" cy="${dotY}" r="${dotRadius}" fill="#0064b1"/>
+                <circle cx="${dotStartX + dotGap * 5}" cy="${dotY}" r="${dotRadius}" fill="#00a651"/>
             </svg>`);
-            const badge = await sharp(badgeSvg)
-                .composite([{
-                    input: peacockLogo,
-                    left: Math.round((badgeWidth - peacockMeta.width) / 2),
-                    top: Math.round((badgeHeight - peacockMeta.height) / 2)
-                }])
-                .png()
-                .toBuffer();
+            const badge = await sharp(badgeSvg).png().toBuffer();
 
             return {
                 input: badge,
@@ -1018,6 +1015,7 @@ async function buildLogoComposite(logoPath, isNetwork, logoWidth, topOffset, rig
             };
         }
 
+        const buf = await fetchImageBuffer(`https://image.tmdb.org/t/p/w154${logoPath}`, { retries: 1 });
         let resized = await sharp(buf)
             .resize({ width: logoWidth, withoutEnlargement: true })
             .png()
