@@ -21,7 +21,7 @@ const TMDB_READ_ACCESS_TOKEN = cleanEnvValue(process.env.TMDB_READ_ACCESS_TOKEN)
 const TRAKT_CLIENT_ID = cleanEnvValue(process.env.TRAKT_CLIENT_ID);
 const TRAKT_ACCESS_TOKEN = cleanEnvValue(process.env.TRAKT_ACCESS_TOKEN).replace(/^Bearer\s+/i, "");
 const ADDON_URL = cleanEnvValue(process.env.ADDON_URL);
-const IMAGE_VERSION = "20260721-peacock-custom";
+const IMAGE_VERSION = "20260721-peacock-padding";
 
 const imageCache = new Map();
 const tmdbCache = new Map();
@@ -825,9 +825,9 @@ function logoPlacement(baseWidth, baseTop, baseRightPad, provider) {
     const cleanedProvider = provider || "";
     if (cleanedProvider.includes("peacock")) {
         return {
-            width: Math.round(baseWidth * 1.08),
+            width: baseWidth,
             top: baseTop,
-            rightPad: Math.round(baseRightPad * 1.45)
+            rightPad: Math.round(baseRightPad * 2.25)
         };
     }
     return {
@@ -981,40 +981,6 @@ async function buildTagComposites(imageBuffer, metadata, tagText, heightRatio, f
  */
 async function buildLogoComposite(logoPath, isNetwork, logoWidth, topOffset, rightEdge, rightPad, provider = "") {
     try {
-        if ((provider || "").includes("peacock")) {
-            const badgeWidth = Math.round(logoWidth * 2.25);
-            const badgeHeight = Math.round(logoWidth * 0.78);
-            const badgeRadius = Math.round(badgeHeight * 0.28);
-            const fontSize = Math.round(badgeHeight * 0.44);
-            const textX = Math.round(badgeWidth * 0.12);
-            const textY = Math.round(badgeHeight * 0.63);
-            const dotRadius = Math.max(1, Math.round(badgeHeight * 0.055));
-            const dotStartX = Math.round(badgeWidth * 0.70);
-            const dotY = Math.round(badgeHeight * 0.50);
-            const dotGap = Math.round(dotRadius * 2.6);
-            const badgeSvg = Buffer.from(`<svg width="${badgeWidth}" height="${badgeHeight}">
-                <rect x="0" y="0" width="${badgeWidth}" height="${badgeHeight}"
-                      rx="${badgeRadius}" ry="${badgeRadius}" fill="black" fill-opacity="0.92"/>
-                <text x="${textX}" y="${textY}"
-                      font-family="Arial, Helvetica, sans-serif"
-                      font-size="${fontSize}" font-weight="700"
-                      fill="white">peacock</text>
-                <circle cx="${dotStartX}" cy="${dotY}" r="${dotRadius}" fill="#f5c518"/>
-                <circle cx="${dotStartX + dotGap}" cy="${dotY}" r="${dotRadius}" fill="#f37021"/>
-                <circle cx="${dotStartX + dotGap * 2}" cy="${dotY}" r="${dotRadius}" fill="#e50914"/>
-                <circle cx="${dotStartX + dotGap * 3}" cy="${dotY}" r="${dotRadius}" fill="#b11383"/>
-                <circle cx="${dotStartX + dotGap * 4}" cy="${dotY}" r="${dotRadius}" fill="#0064b1"/>
-                <circle cx="${dotStartX + dotGap * 5}" cy="${dotY}" r="${dotRadius}" fill="#00a651"/>
-            </svg>`);
-            const badge = await sharp(badgeSvg).png().toBuffer();
-
-            return {
-                input: badge,
-                top: topOffset,
-                left: Math.round(rightEdge - badgeWidth - rightPad)
-            };
-        }
-
         const buf = await fetchImageBuffer(`https://image.tmdb.org/t/p/w154${logoPath}`, { retries: 1 });
         let resized = await sharp(buf)
             .resize({ width: logoWidth, withoutEnlargement: true })
