@@ -375,6 +375,23 @@ async function fetchCatalogTmdbSeeds(input, type) {
         : fetchTraktTmdbSeeds(input, type);
 }
 
+async function fetchTmdbTrendingTodaySeeds(type) {
+    const tmdbType = type === "series" ? "tv" : "movie";
+    const data = await fetchTmdbJson(`https://api.themoviedb.org/3/trending/${tmdbType}/day?api_key=${TMDB_API_KEY}`);
+    return (data.results || []).slice(0, 10).map(item => ({
+        id: item.id,
+        title: item.title || item.name,
+        name: item.name || item.title,
+        overview: item.overview || "",
+        poster_path: item.poster_path,
+        backdrop_path: item.backdrop_path,
+        genre_ids: item.genre_ids || [],
+        original_language: item.original_language,
+        release_date: item.release_date,
+        first_air_date: item.first_air_date
+    }));
+}
+
 function releaseDateOnly(value) {
     if (!value) return null;
     const datePart = String(value).slice(0, 10);
@@ -1085,6 +1102,7 @@ builder.defineCatalogHandler(async (args) => {
         seriesTop10Only: config.seriesTop10Only !== undefined ? config.seriesTop10Only === "true" : config.top10Only === "true",
         portraitPosterLang: config.portraitPosterLang || config.posterLang || "en",
         digitalOnly: config.digitalOnly === "true",
+        tmdbTrendingToday: config.tmdbTrendingToday === "true",
         listLang: config.listLang || "en",
         traktCatalog: normalizeTraktCatalogInput(config.traktCatalog),
         traktShowsCatalog: normalizeTraktCatalogInput(config.traktShowsCatalog || config.traktSeriesCatalog),
@@ -1103,7 +1121,8 @@ builder.defineCatalogHandler(async (args) => {
     let seenIds = new Set();
     let page = 1;
     const usePublicCatalog = !!activePublicCatalog;
-    if (!usePublicCatalog) {
+    const useTmdbTrendingToday = !usePublicCatalog && id !== "calendar_lite_theaters" && userConfig.tmdbTrendingToday;
+    if (!usePublicCatalog && !useTmdbTrendingToday) {
         return { metas: [] };
     }
 
@@ -1112,7 +1131,11 @@ builder.defineCatalogHandler(async (args) => {
     const TODAY = new Date();
 
     while (finalItems.length < catalogLimit && page <= maxPages) {
-        const data = { results: await fetchCatalogTmdbSeeds(activePublicCatalog, type) };
+        const data = {
+            results: usePublicCatalog
+                ? await fetchCatalogTmdbSeeds(activePublicCatalog, type)
+                : await fetchTmdbTrendingTodaySeeds(type)
+        };
         if (!data.results || data.results.length === 0) break;
 
         let pageItems = data.results.filter(item => {
@@ -1897,6 +1920,7 @@ const configUI = `<!DOCTYPE html>
             
             <div class="form-group">
                 <h3 style="color: #e0e0e0; margin: 0 0 15px 0; font-size: 16px; border-bottom: 1px solid #333; padding-bottom: 8px;">Poster Config</h3>
+                <label class="checkbox-group" for="tmdbTrendingToday"><input type="checkbox" id="tmdbTrendingToday" onchange="updateLink()"><span>TMDB Trending Today</span></label>
                 <label class="checkbox-group" for="portraitTags"><input type="checkbox" id="portraitTags" checked onchange="updateLink()"><span>Tags</span></label>
                 <span class="sub-option-label">Streaming Logos</span>
                 <div class="sub-options">
@@ -2119,9 +2143,9 @@ const configUI = `<!DOCTYPE html>
             });
         }
 
-        function updatePreviewTitles(showsCatalog, moviesCatalog, theatersCatalog) {
-            document.getElementById('shows-title').textContent = traktCatalogDisplayName(showsCatalog) || 'Coming Soon Shows';
-            document.getElementById('movies-title').textContent = traktCatalogDisplayName(moviesCatalog) || 'Coming Soon Movies';
+        function updatePreviewTitles(showsCatalog, moviesCatalog, theatersCatalog, tmdbTrending) {
+            document.getElementById('shows-title').textContent = traktCatalogDisplayName(showsCatalog) || (tmdbTrending ? 'TMDB Trending Shows Today' : 'Coming Soon Shows');
+            document.getElementById('movies-title').textContent = traktCatalogDisplayName(moviesCatalog) || (tmdbTrending ? 'TMDB Trending Movies Today' : 'Coming Soon Movies');
             document.getElementById('theaters-title').textContent = traktCatalogDisplayName(theatersCatalog) || 'In Theaters';
         }
 
@@ -2152,6 +2176,7 @@ const configUI = `<!DOCTYPE html>
 
         function updateLink() {
             const pt = document.getElementById('portraitTags').checked,
+                  tmdbTrending = document.getElementById('tmdbTrendingToday').checked,
                   pmlo = document.getElementById('portraitMovieLogos').checked,
                   pslo = document.getElementById('portraitSeriesLogos').checked,
                   ptlo = document.getElementById('portraitTheatersLogos').checked,
@@ -2166,7 +2191,7 @@ const configUI = `<!DOCTYPE html>
                   traktMovies = document.getElementById('traktMoviesCatalog').value.trim(),
                   traktTheaters = document.getElementById('traktTheatersCatalog').value.trim();
 
-            updatePreviewTitles(traktShows, traktMovies, traktTheaters);
+            updatePreviewTitles(traktShows, traktMovies, traktTheaters, tmdbTrending);
                   
             const checkedLangs = Array.from(document.querySelectorAll('#listLangOptions input:checked'));
             const l = checkedLangs.map(opt => opt.value).join(',') || 'all';
@@ -2181,7 +2206,7 @@ const configUI = `<!DOCTYPE html>
             const traktTheatersPart = traktTheaters ? "|traktTheatersCatalog=" + encodeURIComponent(traktTheaters) : "";
             const anyPortraitLogos = pmlo || pslo || ptlo;
             const anyPortraitRanked = pmranked || psranked || ptranked;
-            const c = "landscapeTags=false|landscapeLogos=false|landscapeRanked=false|portraitTags=" + pt + "|portraitLogos=" + anyPortraitLogos + "|portraitMovieLogos=" + pmlo + "|portraitSeriesLogos=" + pslo + "|portraitTheatersLogos=" + ptlo + "|portraitRanked=" + anyPortraitRanked + "|portraitMovieRanked=" + pmranked + "|portraitSeriesRanked=" + psranked + "|portraitTheatersRanked=" + ptranked + "|movieTop10Only=" + movieTop10 + "|seriesTop10Only=" + seriesTop10 + "|posterLang=" + plang + "|digitalOnly=" + d + "|listLang=" + l + traktShowsPart + traktMoviesPart + traktTheatersPart;
+            const c = "landscapeTags=false|landscapeLogos=false|landscapeRanked=false|portraitTags=" + pt + "|tmdbTrendingToday=" + tmdbTrending + "|portraitLogos=" + anyPortraitLogos + "|portraitMovieLogos=" + pmlo + "|portraitSeriesLogos=" + pslo + "|portraitTheatersLogos=" + ptlo + "|portraitRanked=" + anyPortraitRanked + "|portraitMovieRanked=" + pmranked + "|portraitSeriesRanked=" + psranked + "|portraitTheatersRanked=" + ptranked + "|movieTop10Only=" + movieTop10 + "|seriesTop10Only=" + seriesTop10 + "|posterLang=" + plang + "|digitalOnly=" + d + "|listLang=" + l + traktShowsPart + traktMoviesPart + traktTheatersPart;
             const h = window.location.host, pr = window.location.protocol;
             
             document.getElementById('manifestUrl').value = pr + "//" + h + "/" + c + "/manifest.json";
@@ -2198,8 +2223,11 @@ const configUI = `<!DOCTYPE html>
             const traktShows = document.getElementById('traktShowsCatalog').value.trim();
             const traktMovies = document.getElementById('traktMoviesCatalog').value.trim();
             const traktTheaters = document.getElementById('traktTheatersCatalog').value.trim();
+            const tmdbTrending = document.getElementById('tmdbTrendingToday').checked;
+            const loadShows = !!traktShows || tmdbTrending;
+            const loadMovies = !!traktMovies || tmdbTrending;
 
-            if (!traktShows && !traktMovies && !traktTheaters) {
+            if (!loadShows && !loadMovies && !traktTheaters) {
                 currentShows = [];
                 currentMovies = [];
                 currentTheaters = [];
@@ -2209,14 +2237,14 @@ const configUI = `<!DOCTYPE html>
                 return;
             }
 
-            showsContainer.innerHTML = traktShows ? '<div class="loading">Loading shows...</div>' : '<div class="loading">Add a shows catalog to preview shows</div>';
-            moviesContainer.innerHTML = traktMovies ? '<div class="loading">Loading movies...</div>' : '<div class="loading">Add a movies catalog to preview movies</div>';
+            showsContainer.innerHTML = loadShows ? '<div class="loading">Loading shows...</div>' : '<div class="loading">Add a shows catalog to preview shows</div>';
+            moviesContainer.innerHTML = loadMovies ? '<div class="loading">Loading movies...</div>' : '<div class="loading">Add a movies catalog to preview movies</div>';
             theatersContainer.innerHTML = traktTheaters ? '<div class="loading">Loading theatrical releases...</div>' : '<div class="loading">Add an in-theaters catalog to preview theatrical releases</div>';
             
             try {
                 const [showsRes, moviesRes, theatersRes] = await Promise.all([
-                    traktShows ? fetch(pr + "//" + h + "/" + config + "/catalog/series/calendar_lite_shows.json") : Promise.resolve(null),
-                    traktMovies ? fetch(pr + "//" + h + "/" + config + "/catalog/movie/calendar_lite_movies.json") : Promise.resolve(null),
+                    loadShows ? fetch(pr + "//" + h + "/" + config + "/catalog/series/calendar_lite_shows.json") : Promise.resolve(null),
+                    loadMovies ? fetch(pr + "//" + h + "/" + config + "/catalog/movie/calendar_lite_movies.json") : Promise.resolve(null),
                     traktTheaters ? fetch(pr + "//" + h + "/" + config + "/catalog/movie/calendar_lite_theaters.json") : Promise.resolve(null)
                 ]);
                 
@@ -2233,14 +2261,14 @@ const configUI = `<!DOCTYPE html>
                 currentTheaters = theatersData.metas || [];
                 
                 renderCurrentData();
-                if (!traktShows) showsContainer.innerHTML = '<div class="loading">Add a shows catalog to preview shows</div>';
-                if (!traktMovies) moviesContainer.innerHTML = '<div class="loading">Add a movies catalog to preview movies</div>';
+                if (!loadShows) showsContainer.innerHTML = '<div class="loading">Add a shows catalog to preview shows</div>';
+                if (!loadMovies) moviesContainer.innerHTML = '<div class="loading">Add a movies catalog to preview movies</div>';
                 if (!traktTheaters) theatersContainer.innerHTML = '<div class="loading">Add an in-theaters catalog to preview theatrical releases</div>';
                 
             } catch (err) {
                 const message = err && err.message ? err.message : 'Error loading preview';
-                if (traktShows) showsContainer.innerHTML = '<div class="loading">' + message + '</div>';
-                if (traktMovies) moviesContainer.innerHTML = '<div class="loading">' + message + '</div>';
+                if (loadShows) showsContainer.innerHTML = '<div class="loading">' + message + '</div>';
+                if (loadMovies) moviesContainer.innerHTML = '<div class="loading">' + message + '</div>';
                 if (traktTheaters) theatersContainer.innerHTML = '<div class="loading">' + message + '</div>';
             }
         }
