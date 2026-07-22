@@ -21,7 +21,7 @@ const TMDB_READ_ACCESS_TOKEN = cleanEnvValue(process.env.TMDB_READ_ACCESS_TOKEN)
 const TRAKT_CLIENT_ID = cleanEnvValue(process.env.TRAKT_CLIENT_ID);
 const TRAKT_ACCESS_TOKEN = cleanEnvValue(process.env.TRAKT_ACCESS_TOKEN).replace(/^Bearer\s+/i, "");
 const ADDON_URL = cleanEnvValue(process.env.ADDON_URL);
-const IMAGE_VERSION = "20260721-peacock-smaller";
+const IMAGE_VERSION = "20260722-rank-style";
 
 const imageCache = new Map();
 const tmdbCache = new Map();
@@ -1489,10 +1489,10 @@ app.get(
             // ── 3. Build rank SVG (sync, zero I/O) ───────────────────────────
             let rankComposite = null;
             if (drawRank) {
-                const fontSize = Math.round(metadata.height * 0.20);
-                const paddingTop = Math.round(metadata.height * 0.05);
-                const paddingLeft = Math.round(width * 0.05);
-                const fontStack = "'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif";
+                const fontSize = Math.round(metadata.height * 0.16);
+                const paddingTop = Math.round(metadata.height * 0.045);
+                const paddingLeft = Math.round(width * 0.045);
+                const fontStack = "'Arial Black', 'Segoe UI Black', 'Aptos Black', Impact, 'SF Pro Display', Arial, sans-serif";
 
                 const rankSvg = `<svg width="${width}" height="${metadata.height}">
                     <defs>
@@ -1502,9 +1502,9 @@ app.get(
                             <stop offset="100%" style="stop-color:#808080;stop-opacity:1"/>
                         </linearGradient>
                         <filter id="rankShadow" x="-10%" y="-10%" width="120%" height="120%">
-                            <feGaussianBlur in="SourceAlpha" stdDeviation="3"/>
-                            <feOffset dx="3" dy="3" result="offsetblur"/>
-                            <feFlood flood-color="black" flood-opacity="0.9"/>
+                            <feGaussianBlur in="SourceAlpha" stdDeviation="2"/>
+                            <feOffset dx="2" dy="2" result="offsetblur"/>
+                            <feFlood flood-color="black" flood-opacity="0.65"/>
                             <feComposite in2="offsetblur" operator="in"/>
                             <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
                         </filter>
@@ -1514,10 +1514,10 @@ app.get(
                             <stop offset="100%" style="stop-color:black;stop-opacity:0"/>
                         </radialGradient>
                     </defs>
-                    <rect x="0" y="0" width="${width * 0.4}" height="${fontSize * 1.5}" fill="url(#shimmerGradient)"/>
-                    <text x="${paddingLeft}" y="${paddingTop + fontSize / 1.1}" text-anchor="start"
+                    <rect x="0" y="0" width="${width * 0.32}" height="${fontSize * 1.35}" fill="url(#shimmerGradient)"/>
+                    <text x="${paddingLeft}" y="${paddingTop + fontSize / 1.05}" text-anchor="start"
                           font-family="${fontStack}" font-size="${fontSize}"
-                          fill="url(#rankGradient)" fill-opacity="0.80" font-weight="bold"
+                          fill="url(#rankGradient)" fill-opacity="0.92" font-weight="900"
                           filter="url(#rankShadow)">${rank}</text>
                 </svg>`;
 
@@ -1687,10 +1687,10 @@ app.get(
             // ── 3. Build rank SVG (sync, zero I/O) ───────────────────────────
             let rankComposite = null;
             if (drawRank) {
-                const fontSize = Math.round(width * 0.30);
-                const paddingTop = Math.round(width * 0.08);
-                const paddingLeft = Math.round(width * 0.08);
-                const fontStack = "'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif";
+                const fontSize = Math.round(width * 0.22);
+                const paddingTop = Math.round(width * 0.065);
+                const paddingLeft = Math.round(width * 0.07);
+                const fontStack = "'Arial Black', 'Segoe UI Black', 'Aptos Black', Impact, 'SF Pro Display', Arial, sans-serif";
 
                 const rankSvg = `<svg width="${width}" height="${metadata.height}">
                     <defs>
@@ -1700,9 +1700,9 @@ app.get(
                             <stop offset="100%" style="stop-color:#808080;stop-opacity:1"/>
                         </linearGradient>
                         <filter id="rankShadow" x="-10%" y="-10%" width="120%" height="120%">
-                            <feGaussianBlur in="SourceAlpha" stdDeviation="3"/>
-                            <feOffset dx="3" dy="3" result="offsetblur"/>
-                            <feFlood flood-color="black" flood-opacity="0.9"/>
+                            <feGaussianBlur in="SourceAlpha" stdDeviation="2"/>
+                            <feOffset dx="2" dy="2" result="offsetblur"/>
+                            <feFlood flood-color="black" flood-opacity="0.65"/>
                             <feComposite in2="offsetblur" operator="in"/>
                             <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
                         </filter>
@@ -1712,10 +1712,10 @@ app.get(
                             <stop offset="100%" style="stop-color:black;stop-opacity:0"/>
                         </radialGradient>
                     </defs>
-                    <rect x="0" y="0" width="${width * 0.6}" height="${fontSize * 2}" fill="url(#shimmerGradient)"/>
-                    <text x="${paddingLeft}" y="${paddingTop + fontSize / 1.3}" text-anchor="start"
+                    <rect x="0" y="0" width="${width * 0.42}" height="${fontSize * 1.55}" fill="url(#shimmerGradient)"/>
+                    <text x="${paddingLeft}" y="${paddingTop + fontSize / 1.15}" text-anchor="start"
                           font-family="${fontStack}" font-size="${fontSize}"
-                          fill="url(#rankGradient)" fill-opacity="0.80" font-weight="bold"
+                          fill="url(#rankGradient)" fill-opacity="0.92" font-weight="900"
                           filter="url(#rankShadow)">${rank}</text>
                 </svg>`;
 
