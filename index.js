@@ -375,10 +375,10 @@ async function fetchCatalogTmdbSeeds(input, type) {
         : fetchTraktTmdbSeeds(input, type);
 }
 
-async function fetchTmdbTrendingTodaySeeds(type) {
+async function fetchTmdbTrendingTodaySeeds(type, page = 1) {
     const tmdbType = type === "series" ? "tv" : "movie";
-    const data = await fetchTmdbJson(`https://api.themoviedb.org/3/trending/${tmdbType}/day?api_key=${TMDB_API_KEY}`);
-    return (data.results || []).slice(0, 10).map(item => ({
+    const data = await fetchTmdbJson(`https://api.themoviedb.org/3/trending/${tmdbType}/day?api_key=${TMDB_API_KEY}&page=${page}`);
+    return (data.results || []).map(item => ({
         id: item.id,
         title: item.title || item.name,
         name: item.name || item.title,
@@ -1126,15 +1126,15 @@ builder.defineCatalogHandler(async (args) => {
         return { metas: [] };
     }
 
-    const maxPages = 1;
-    const catalogLimit = Infinity;
+    const maxPages = useTmdbTrendingToday ? 5 : 1;
+    const catalogLimit = useTmdbTrendingToday ? 10 : Infinity;
     const TODAY = new Date();
 
     while (finalItems.length < catalogLimit && page <= maxPages) {
         const data = {
             results: usePublicCatalog
                 ? await fetchCatalogTmdbSeeds(activePublicCatalog, type)
-                : await fetchTmdbTrendingTodaySeeds(type)
+                : await fetchTmdbTrendingTodaySeeds(type, page)
         };
         if (!data.results || data.results.length === 0) break;
 
@@ -1189,7 +1189,7 @@ builder.defineCatalogHandler(async (args) => {
                 item._earliestPhysical = dates.earliestPhysical;
             });
 
-            if (userConfig.digitalOnly && !usePublicCatalog) {
+            if ((userConfig.digitalOnly || useTmdbTrendingToday) && !usePublicCatalog) {
                 pageItems = pageItems.filter(item => {
                     // Prevent TMDB metadata errors: if a future digital release exists,
                     // it is not truly out yet, regardless of erroneous past physical dates.
@@ -1197,6 +1197,7 @@ builder.defineCatalogHandler(async (args) => {
 
                     const hasDigital = item._earliestDigital && item._earliestDigital <= TODAY;
                     const hasPhysical = item._earliestPhysical && item._earliestPhysical <= TODAY;
+                    if (useTmdbTrendingToday) return hasDigital;
                     return hasDigital || hasPhysical;
                 });
             }
@@ -1365,11 +1366,14 @@ builder.defineCatalogHandler(async (args) => {
         }
 
         finalItems.push(...pageItems);
+        if (finalItems.length > catalogLimit) finalItems = finalItems.slice(0, catalogLimit);
         page++;
     }
 
     const isTheatersCatalog = id === "calendar_lite_theaters";
-    const limitCatalogToTop10 = type === 'series'
+    const limitCatalogToTop10 = useTmdbTrendingToday
+        ? true
+        : type === 'series'
         ? userConfig.seriesTop10Only
         : isTheatersCatalog
             ? false
@@ -1920,7 +1924,7 @@ const configUI = `<!DOCTYPE html>
             
             <div class="form-group">
                 <h3 style="color: #e0e0e0; margin: 0 0 15px 0; font-size: 16px; border-bottom: 1px solid #333; padding-bottom: 8px;">Poster Config</h3>
-                <label class="checkbox-group" for="tmdbTrendingToday"><input type="checkbox" id="tmdbTrendingToday" onchange="updateLink()"><span>TMDB Trending Today</span></label>
+                <label class="checkbox-group" for="tmdbTrendingToday"><input type="checkbox" id="tmdbTrendingToday" onchange="updateLink()"><span>TMDB Top 10 Trending Today</span></label>
                 <label class="checkbox-group" for="portraitTags"><input type="checkbox" id="portraitTags" checked onchange="updateLink()"><span>Tags</span></label>
                 <span class="sub-option-label">Streaming Logos</span>
                 <div class="sub-options">
@@ -2144,8 +2148,8 @@ const configUI = `<!DOCTYPE html>
         }
 
         function updatePreviewTitles(showsCatalog, moviesCatalog, theatersCatalog, tmdbTrending) {
-            document.getElementById('shows-title').textContent = traktCatalogDisplayName(showsCatalog) || (tmdbTrending ? 'TMDB Trending Shows Today' : 'Coming Soon Shows');
-            document.getElementById('movies-title').textContent = traktCatalogDisplayName(moviesCatalog) || (tmdbTrending ? 'TMDB Trending Movies Today' : 'Coming Soon Movies');
+            document.getElementById('shows-title').textContent = traktCatalogDisplayName(showsCatalog) || (tmdbTrending ? 'TMDB Top 10 Trending Shows Today' : 'Coming Soon Shows');
+            document.getElementById('movies-title').textContent = traktCatalogDisplayName(moviesCatalog) || (tmdbTrending ? 'TMDB Top 10 Trending Streaming Movies Today' : 'Coming Soon Movies');
             document.getElementById('theaters-title').textContent = traktCatalogDisplayName(theatersCatalog) || 'In Theaters';
         }
 
