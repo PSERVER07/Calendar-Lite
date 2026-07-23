@@ -2,7 +2,7 @@
 
 This document outlines the various landscape graphic tags applied to content and the specific conditions required for them to appear.
 
-## Top 10 Today Tags
+## Top 10 Today
 
 Top 10 Today tags only apply when **TMDB Top 10 Trending Today** is enabled. They are evaluated before the normal Calendar-Lite tags; if no Top 10 Today tag applies, the addon falls back to the standard movie or series tag logic below.
 

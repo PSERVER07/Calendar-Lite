@@ -2044,7 +2044,7 @@ const configUI = `<!DOCTYPE html>
                 <h3 style="color: #e0e0e0; margin: 0 0 15px 0; font-size: 16px; border-bottom: 1px solid #333; padding-bottom: 8px;">Poster Config</h3>
                 <label class="checkbox-group" for="tmdbTrendingToday"><input type="checkbox" id="tmdbTrendingToday" onchange="updateLink()"><span>TMDB Top 10 Trending Today</span></label>
                 <label class="checkbox-group" for="portraitTags"><input type="checkbox" id="portraitTags" checked onchange="updateLink()"><span>Tags</span></label>
-                <span class="sub-option-label">Top 10 Today Tags</span>
+                <span class="sub-option-label">Top 10 Today</span>
                 <div class="sub-options">
                     <label class="checkbox-group" for="top10MovieTags"><input type="checkbox" id="top10MovieTags" checked onchange="updateLink()"><span>Movies</span></label>
                     <label class="checkbox-group" for="top10SeriesTags"><input type="checkbox" id="top10SeriesTags" checked onchange="updateLink()"><span>TV Shows</span></label>
