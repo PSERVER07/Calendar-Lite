@@ -8,9 +8,9 @@ Top 10 Today tags only apply when **TMDB Top 10 Trending Today** is enabled. The
 
 ### Movies
 *   **`Now Streaming`**
-    *   **Logic:** The movie was released digitally **15 or more days** ago, and it either skipped theaters or its theatrical release date was the same as its digital release date.
+    *   **Logic:** The movie was released digitally **4 or more days** ago, and it either skipped theaters or its theatrical release date was the same as its digital release date.
 *   **`Just Added`**
-    *   **Logic:** The movie was released digitally within the last **14 days**, and it had a theatrical release date prior to its digital release.
+    *   **Logic:** The movie was released digitally within the last **3 days**, and it had a theatrical release date prior to its digital release.
 
 ### Series (TV Shows)
 *   **`Miniseries`**
