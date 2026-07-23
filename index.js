@@ -721,9 +721,18 @@ function configuredCatalogs(config = {}) {
         : catalogs;
 }
 
+function manifestIdForConfig(config = {}) {
+    const suffix = cleanEnvValue(config.profileId)
+        .toLowerCase()
+        .replace(/[^a-z0-9-_.]+/g, "-")
+        .replace(/^[.-]+|[.-]+$/g, "")
+        .slice(0, 48);
+    return suffix ? `com.pserver.calendar-lite.${suffix}` : "com.pserver.calendar-lite";
+}
+
 const manifest = {
-    id: "com.pserver.calendar-lite",
-    version: "1.12.5",
+    id: manifestIdForConfig(),
+    version: "1.12.6",
     name: "Coming Soon",
     description: "Customizable Stremio catalogs for upcoming and recently released content with optional graphic tags and public Trakt or TMDB lists.",
     behaviorHints: { configurable: true, configurationRequired: true },
@@ -2085,6 +2094,9 @@ const configUI = `<!DOCTYPE html>
             
             <div style="margin-top: auto;">
                 <div class="form-group">
+                    <label>Addon Profile</label>
+                    <input type="text" id="profileId" placeholder="Optional: top10 or trakt" oninput="updateLink()">
+                    <div style="color: #888; font-size: 12px; line-height: 1.4; margin: 6px 0 14px;">Use a different profile for each installed setup.</div>
                     <label>Manifest URL</label>
                     <div class="link-container">
                         <input type="text" id="manifestUrl" readonly>
@@ -2333,7 +2345,8 @@ const configUI = `<!DOCTYPE html>
                   traktTheaters = document.getElementById('traktTheatersCatalog').value.trim(),
                   showsDisplayName = document.getElementById('showsDisplayName').value.trim(),
                   moviesDisplayName = document.getElementById('moviesDisplayName').value.trim(),
-                  theatersDisplayName = document.getElementById('theatersDisplayName').value.trim();
+                  theatersDisplayName = document.getElementById('theatersDisplayName').value.trim(),
+                  profileId = document.getElementById('profileId').value.trim();
 
             updatePreviewTitles(traktShows, traktMovies, traktTheaters, tmdbTrending, showsDisplayName, moviesDisplayName, theatersDisplayName);
                   
@@ -2351,9 +2364,10 @@ const configUI = `<!DOCTYPE html>
             const showsDisplayNamePart = showsDisplayName ? "|showsDisplayName=" + encodeURIComponent(showsDisplayName) : "";
             const moviesDisplayNamePart = moviesDisplayName ? "|moviesDisplayName=" + encodeURIComponent(moviesDisplayName) : "";
             const theatersDisplayNamePart = theatersDisplayName ? "|theatersDisplayName=" + encodeURIComponent(theatersDisplayName) : "";
+            const profileIdPart = profileId ? "|profileId=" + encodeURIComponent(profileId) : "";
             const anyPortraitLogos = pmlo || pslo || ptlo;
             const anyPortraitRanked = pmranked || psranked || ptranked;
-            const c = "landscapeTags=false|landscapeLogos=false|landscapeRanked=false|portraitTags=" + pt + "|tmdbTrendingToday=" + tmdbTrending + "|top10MovieTags=" + top10MovieTags + "|top10SeriesTags=" + top10SeriesTags + "|portraitLogos=" + anyPortraitLogos + "|portraitMovieLogos=" + pmlo + "|portraitSeriesLogos=" + pslo + "|portraitTheatersLogos=" + ptlo + "|portraitRanked=" + anyPortraitRanked + "|portraitMovieRanked=" + pmranked + "|portraitSeriesRanked=" + psranked + "|portraitTheatersRanked=" + ptranked + "|movieTop10Only=" + movieTop10 + "|seriesTop10Only=" + seriesTop10 + "|posterLang=" + plang + "|digitalOnly=" + d + "|listLang=" + l + traktShowsPart + traktMoviesPart + traktTheatersPart + showsDisplayNamePart + moviesDisplayNamePart + theatersDisplayNamePart;
+            const c = "landscapeTags=false|landscapeLogos=false|landscapeRanked=false|portraitTags=" + pt + "|tmdbTrendingToday=" + tmdbTrending + "|top10MovieTags=" + top10MovieTags + "|top10SeriesTags=" + top10SeriesTags + "|portraitLogos=" + anyPortraitLogos + "|portraitMovieLogos=" + pmlo + "|portraitSeriesLogos=" + pslo + "|portraitTheatersLogos=" + ptlo + "|portraitRanked=" + anyPortraitRanked + "|portraitMovieRanked=" + pmranked + "|portraitSeriesRanked=" + psranked + "|portraitTheatersRanked=" + ptranked + "|movieTop10Only=" + movieTop10 + "|seriesTop10Only=" + seriesTop10 + "|posterLang=" + plang + "|digitalOnly=" + d + "|listLang=" + l + traktShowsPart + traktMoviesPart + traktTheatersPart + showsDisplayNamePart + moviesDisplayNamePart + theatersDisplayNamePart + profileIdPart;
             const h = window.location.host, pr = window.location.protocol;
             
             document.getElementById('manifestUrl').value = pr + "//" + h + "/" + c + "/manifest.json";
@@ -2499,6 +2513,7 @@ app.get('/:config/manifest.json', (req, res) => {
     const config = parseConfig(req.params.config);
     const configuredManifest = JSON.parse(JSON.stringify(addonInterface.manifest));
     if (configuredManifest.behaviorHints) configuredManifest.behaviorHints.configurationRequired = false;
+    configuredManifest.id = manifestIdForConfig(config);
     configuredManifest.catalogs = configuredCatalogs(config);
     res.json(configuredManifest);
 });
