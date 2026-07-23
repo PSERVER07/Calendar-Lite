@@ -1312,7 +1312,7 @@ builder.defineCatalogHandler(async (args) => {
 
                     let top10MovieTag = null;
                     if (useTmdbTrendingToday && userConfig.top10MovieTags && daysSinceDigital !== null) {
-                        if (!item._earliestTheatrical || sameCalendarDate(item._earliestTheatrical, item._earliestDigital)) top10MovieTag = "top10_now_streaming";
+                        if (daysSinceDigital >= 15 && (!item._earliestTheatrical || sameCalendarDate(item._earliestTheatrical, item._earliestDigital))) top10MovieTag = "top10_now_streaming";
                         else if (daysSinceDigital <= 14 && isBeforeCalendarDate(item._earliestTheatrical, item._earliestDigital)) top10MovieTag = "top10_just_added";
                     }
 
