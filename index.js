@@ -756,7 +756,6 @@ const tagDisplayNameMap = {
     "new_movie": "New Movie",
     "top10_now_streaming": "Now Streaming",
     "top10_just_added": "Just Added",
-    "top10_miniseries": "Miniseries",
     "in_theaters": "In Theaters",
     "coming_soon": "Coming Soon",
     "miniseries": "New Miniseries",
@@ -1406,8 +1405,23 @@ builder.defineCatalogHandler(async (args) => {
 
                     let itemTag = null, futureDate = null;
 
-                    if (useTmdbTrendingToday && userConfig.top10SeriesTags && isLimitedSeriesMetadata(tvData)) {
-                        itemTag = "top10_miniseries";
+                    if (useTmdbTrendingToday && userConfig.top10SeriesTags) {
+                        const daysSinceFirstAir = firstAir && firstAir <= TODAY ? diffDays(TODAY, firstAir) : null;
+                        const daysSinceSeasonAir = seasonAir && seasonAir <= TODAY ? diffDays(TODAY, seasonAir) : null;
+                        const daysSinceLastAir = lastAir && lastAir <= TODAY ? diffDays(TODAY, lastAir) : null;
+
+                        if (isLimitedSeriesMetadata(tvData) && daysSinceFirstAir !== null && daysSinceFirstAir <= 180) {
+                            itemTag = "miniseries";
+                        } else if (firstAir && firstAir <= TODAY && daysSinceFirstAir <= 180) {
+                            itemTag = "new_series";
+                        } else if (seasonAir && seasonAir <= TODAY && daysSinceSeasonAir <= 180) {
+                            itemTag = "new_season";
+                        } else if (isFinale && lastAir && lastAir <= TODAY && daysSinceLastAir <= 180 && (tvData.status === "Ended" || tvData.status === "Canceled")) {
+                            itemTag = "series_finale";
+                        } else if ((tvData.status === "Ended" || tvData.status === "Canceled") &&
+                            tvData.number_of_seasons > 1 && lastAir && lastAir <= TODAY && daysSinceLastAir <= 180) {
+                            itemTag = "final_season";
+                        }
                     }
 
                     if (!itemTag && firstAir && firstAir > TODAY) {

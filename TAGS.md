@@ -13,8 +13,16 @@ Top 10 Today tags only apply when **TMDB Top 10 Trending Today** is enabled. The
     *   **Logic:** The movie was released digitally within the last **3 days**.
 
 ### Series (TV Shows)
-*   **`Miniseries`**
-    *   **Logic:** A limited series television show that is marked to air only **1 season**, with TMDB metadata identifying it as a miniseries/limited series by type, keyword, season label, or one-season docuseries/special-look metadata.
+*   **`New Miniseries`**
+    *   **Logic:** A limited series television show that premiered its very first episode within the last **180 days**. The series must be marked to air only **1 season**, with TMDB metadata identifying it as a miniseries/limited series by type, keyword, season label, or one-season docuseries/special-look metadata.
+*   **`New Series`**
+    *   **Logic:** A brand new series premiered its very first episode within the last **180 days**.
+*   **`New Season`**
+    *   **Logic:** A brand new season (season 2 or later) premiered within the last **180 days**.
+*   **`Series Finale`**
+    *   **Logic:** The series has officially been marked as "Ended" or "Canceled" by TMDB, and its final episode (which is a finale) aired within the last **180 days**.
+*   **`Final Season`**
+    *   **Logic:** The series has officially been marked as "Ended" or "Canceled" by TMDB, it had more than 1 season, and its very last episode aired within the last **180 days**.
 
 ---
 
