@@ -1311,9 +1311,9 @@ builder.defineCatalogHandler(async (args) => {
                     const isCurrentTheatricalCatalog = id === "calendar_lite_theaters";
 
                     let top10MovieTag = null;
-                    if (useTmdbTrendingToday && userConfig.top10MovieTags && daysSinceDigital !== null && daysSinceDigital <= 14) {
+                    if (useTmdbTrendingToday && userConfig.top10MovieTags && daysSinceDigital !== null) {
                         if (!item._earliestTheatrical || sameCalendarDate(item._earliestTheatrical, item._earliestDigital)) top10MovieTag = "top10_now_streaming";
-                        else if (isBeforeCalendarDate(item._earliestTheatrical, item._earliestDigital)) top10MovieTag = "top10_just_added";
+                        else if (daysSinceDigital <= 14 && isBeforeCalendarDate(item._earliestTheatrical, item._earliestDigital)) top10MovieTag = "top10_just_added";
                     }
 
                     if (top10MovieTag) {
