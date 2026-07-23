@@ -792,6 +792,24 @@ function parseTagText(tag) {
     return null;
 }
 
+function textMatchesLimitedSeries(value) {
+    return /(^|\s|-)(mini[-\s]?series|limited[-\s]?series)(\s|-|$)/i.test(value || "");
+}
+
+function isOneSeasonSeries(tvData) {
+    const regularSeasons = (tvData.seasons || []).filter(season => season.season_number > 0);
+    return tvData.number_of_seasons === 1 || regularSeasons.length === 1;
+}
+
+function isLimitedSeriesMetadata(tvData) {
+    if (!isOneSeasonSeries(tvData)) return false;
+    if (textMatchesLimitedSeries(tvData.type)) return true;
+    if ((tvData.seasons || []).some(season => textMatchesLimitedSeries(season.name))) return true;
+
+    const keywords = tvData.keywords?.results || tvData.keywords?.keywords || [];
+    return keywords.some(keyword => textMatchesLimitedSeries(keyword.name));
+}
+
 /**
  * Determine the best provider/network logo to show.
  * Returns { path, isNetwork } or null.
@@ -1301,7 +1319,7 @@ builder.defineCatalogHandler(async (args) => {
             if (needsTags) {
                 const tvDetailsData = await Promise.all(pageItems.map(async (show) => {
                     try {
-                        const data = await fetchTmdbJson(`https://api.themoviedb.org/3/tv/${show.id}?api_key=${TMDB_API_KEY}&append_to_response=external_ids`);
+                        const data = await fetchTmdbJson(`https://api.themoviedb.org/3/tv/${show.id}?api_key=${TMDB_API_KEY}&append_to_response=external_ids,keywords`);
 
                         let nextEp = data.next_episode_to_air;
                         if (nextEp && nextEp.air_date) {
@@ -1399,9 +1417,7 @@ builder.defineCatalogHandler(async (args) => {
 
                         if (hasNextEpisodeTag) {
                             itemTag = `next_episode_date_${formatFutureDate(nextAirDate).replace(' ', '_')}`;
-                        } else if ((tvData.type || "").toLowerCase() === "miniseries" &&
-                            tvData.number_of_seasons === 1 &&
-                            firstAir && firstAir <= TODAY && diffDays(TODAY, firstAir) <= 3) {
+                        } else if (isLimitedSeriesMetadata(tvData) && firstAir && firstAir <= TODAY && diffDays(TODAY, firstAir) <= 3) {
                             itemTag = "miniseries";
                         } else if (firstAir && firstAir <= TODAY && diffDays(TODAY, firstAir) <= 3) {
                             itemTag = "new_series";

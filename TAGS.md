@@ -37,7 +37,7 @@ Series tags are calculated based on a combination of first air dates, recent/upc
 *   **`Next Episode [Month] [Day]`**
     *   **Logic:** A new episode is going to air within the next **7 days** after the last episode aired **4 or more days** ago.
 *   **`Miniseries`**
-    *   **Logic:** A limited series television show that premiered its very first episode within the last **3 days**. The series must be marked to air only **1 season**.
+    *   **Logic:** A limited series television show that premiered its very first episode within the last **3 days**. The series must be marked to air only **1 season**, with TMDB metadata identifying it as a miniseries/limited series by type, keyword, or season label.
 *   **`New Series`**
     *   **Logic:** A brand new series premiered its very first episode within the last **3 days**.
 *   **`New Season`**
