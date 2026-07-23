@@ -21,7 +21,7 @@ const TMDB_READ_ACCESS_TOKEN = cleanEnvValue(process.env.TMDB_READ_ACCESS_TOKEN)
 const TRAKT_CLIENT_ID = cleanEnvValue(process.env.TRAKT_CLIENT_ID);
 const TRAKT_ACCESS_TOKEN = cleanEnvValue(process.env.TRAKT_ACCESS_TOKEN).replace(/^Bearer\s+/i, "");
 const ADDON_URL = cleanEnvValue(process.env.ADDON_URL);
-const IMAGE_VERSION = "20260722-tag-color";
+const IMAGE_VERSION = "20260722-top10-tags";
 
 const imageCache = new Map();
 const tmdbCache = new Map();
@@ -720,7 +720,7 @@ function configuredCatalogs(config = {}) {
 
 const manifest = {
     id: "com.pserver.calendar-lite",
-    version: "1.12.3",
+    version: "1.12.4",
     name: "Coming Soon",
     description: "Customizable Stremio catalogs for upcoming and recently released content with optional graphic tags and public Trakt or TMDB lists.",
     behaviorHints: { configurable: true, configurationRequired: true },
@@ -754,6 +754,9 @@ const formatFutureDate = (dateObj) => {
 const tagDisplayNameMap = {
     "new_release": "New Release",
     "new_movie": "New Movie",
+    "top10_now_streaming": "Now Streaming",
+    "top10_just_added": "Just Added",
+    "top10_miniseries": "Miniseries",
     "in_theaters": "In Theaters",
     "coming_soon": "Coming Soon",
     "miniseries": "New Miniseries",
@@ -808,6 +811,24 @@ function isLimitedSeriesMetadata(tvData) {
 
     const keywords = tvData.keywords?.results || tvData.keywords?.keywords || [];
     return keywords.some(keyword => textMatchesLimitedSeries(keyword.name));
+}
+
+function sameCalendarDate(dateA, dateB) {
+    if (!dateA || !dateB) return false;
+    const a = new Date(dateA);
+    const b = new Date(dateB);
+    a.setHours(0, 0, 0, 0);
+    b.setHours(0, 0, 0, 0);
+    return a.getTime() === b.getTime();
+}
+
+function isBeforeCalendarDate(dateA, dateB) {
+    if (!dateA || !dateB) return false;
+    const a = new Date(dateA);
+    const b = new Date(dateB);
+    a.setHours(0, 0, 0, 0);
+    b.setHours(0, 0, 0, 0);
+    return a.getTime() < b.getTime();
 }
 
 /**
@@ -1180,6 +1201,8 @@ builder.defineCatalogHandler(async (args) => {
         portraitPosterLang: config.portraitPosterLang || config.posterLang || "en",
         digitalOnly: config.digitalOnly === "true",
         tmdbTrendingToday: config.tmdbTrendingToday === "true",
+        top10MovieTags: config.top10MovieTags !== undefined ? config.top10MovieTags === "true" : true,
+        top10SeriesTags: config.top10SeriesTags !== undefined ? config.top10SeriesTags === "true" : true,
         listLang: config.listLang || "en",
         traktCatalog: normalizeTraktCatalogInput(config.traktCatalog),
         traktShowsCatalog: normalizeTraktCatalogInput(config.traktShowsCatalog || config.traktSeriesCatalog),
@@ -1287,7 +1310,15 @@ builder.defineCatalogHandler(async (args) => {
                     const daysUntilDigital = (item._earliestDigital && item._earliestDigital > TODAY) ? diffDays(item._earliestDigital, TODAY) : null;
                     const isCurrentTheatricalCatalog = id === "calendar_lite_theaters";
 
-                    if (
+                    let top10MovieTag = null;
+                    if (useTmdbTrendingToday && userConfig.top10MovieTags && daysSinceDigital !== null && daysSinceDigital <= 14) {
+                        if (!item._earliestTheatrical || sameCalendarDate(item._earliestTheatrical, item._earliestDigital)) top10MovieTag = "top10_now_streaming";
+                        else if (isBeforeCalendarDate(item._earliestTheatrical, item._earliestDigital)) top10MovieTag = "top10_just_added";
+                    }
+
+                    if (top10MovieTag) {
+                        item._tag = top10MovieTag;
+                    } else if (
                         isCurrentTheatricalCatalog &&
                         daysSinceTheatrical !== null &&
                         daysSinceTheatrical <= 45 &&
@@ -1382,9 +1413,13 @@ builder.defineCatalogHandler(async (args) => {
 
                     let itemTag = null, futureDate = null;
 
-                    if (firstAir && firstAir > TODAY) {
+                    if (useTmdbTrendingToday && userConfig.top10SeriesTags && isLimitedSeriesMetadata(tvData)) {
+                        itemTag = "top10_miniseries";
+                    }
+
+                    if (!itemTag && firstAir && firstAir > TODAY) {
                         futureDate = firstAir;
-                    } else if (nextEp && nextEp.episode_number === 1) {
+                    } else if (!itemTag && nextEp && nextEp.episode_number === 1) {
                         futureDate = parseLocal(nextEp.air_date);
                     }
 
@@ -2009,6 +2044,11 @@ const configUI = `<!DOCTYPE html>
                 <h3 style="color: #e0e0e0; margin: 0 0 15px 0; font-size: 16px; border-bottom: 1px solid #333; padding-bottom: 8px;">Poster Config</h3>
                 <label class="checkbox-group" for="tmdbTrendingToday"><input type="checkbox" id="tmdbTrendingToday" onchange="updateLink()"><span>TMDB Top 10 Trending Today</span></label>
                 <label class="checkbox-group" for="portraitTags"><input type="checkbox" id="portraitTags" checked onchange="updateLink()"><span>Tags</span></label>
+                <span class="sub-option-label">Top 10 Today Tags</span>
+                <div class="sub-options">
+                    <label class="checkbox-group" for="top10MovieTags"><input type="checkbox" id="top10MovieTags" checked onchange="updateLink()"><span>Movies</span></label>
+                    <label class="checkbox-group" for="top10SeriesTags"><input type="checkbox" id="top10SeriesTags" checked onchange="updateLink()"><span>TV Shows</span></label>
+                </div>
                 <span class="sub-option-label">Streaming Logos</span>
                 <div class="sub-options">
                     <label class="checkbox-group" for="portraitMovieLogos"><input type="checkbox" id="portraitMovieLogos" onchange="updateLink()"><span>Movies</span></label>
@@ -2264,6 +2304,8 @@ const configUI = `<!DOCTYPE html>
         function updateLink() {
             const pt = document.getElementById('portraitTags').checked,
                   tmdbTrending = document.getElementById('tmdbTrendingToday').checked,
+                  top10MovieTags = document.getElementById('top10MovieTags').checked,
+                  top10SeriesTags = document.getElementById('top10SeriesTags').checked,
                   pmlo = document.getElementById('portraitMovieLogos').checked,
                   pslo = document.getElementById('portraitSeriesLogos').checked,
                   ptlo = document.getElementById('portraitTheatersLogos').checked,
@@ -2299,7 +2341,7 @@ const configUI = `<!DOCTYPE html>
             const theatersDisplayNamePart = theatersDisplayName ? "|theatersDisplayName=" + encodeURIComponent(theatersDisplayName) : "";
             const anyPortraitLogos = pmlo || pslo || ptlo;
             const anyPortraitRanked = pmranked || psranked || ptranked;
-            const c = "landscapeTags=false|landscapeLogos=false|landscapeRanked=false|portraitTags=" + pt + "|tmdbTrendingToday=" + tmdbTrending + "|portraitLogos=" + anyPortraitLogos + "|portraitMovieLogos=" + pmlo + "|portraitSeriesLogos=" + pslo + "|portraitTheatersLogos=" + ptlo + "|portraitRanked=" + anyPortraitRanked + "|portraitMovieRanked=" + pmranked + "|portraitSeriesRanked=" + psranked + "|portraitTheatersRanked=" + ptranked + "|movieTop10Only=" + movieTop10 + "|seriesTop10Only=" + seriesTop10 + "|posterLang=" + plang + "|digitalOnly=" + d + "|listLang=" + l + traktShowsPart + traktMoviesPart + traktTheatersPart + showsDisplayNamePart + moviesDisplayNamePart + theatersDisplayNamePart;
+            const c = "landscapeTags=false|landscapeLogos=false|landscapeRanked=false|portraitTags=" + pt + "|tmdbTrendingToday=" + tmdbTrending + "|top10MovieTags=" + top10MovieTags + "|top10SeriesTags=" + top10SeriesTags + "|portraitLogos=" + anyPortraitLogos + "|portraitMovieLogos=" + pmlo + "|portraitSeriesLogos=" + pslo + "|portraitTheatersLogos=" + ptlo + "|portraitRanked=" + anyPortraitRanked + "|portraitMovieRanked=" + pmranked + "|portraitSeriesRanked=" + psranked + "|portraitTheatersRanked=" + ptranked + "|movieTop10Only=" + movieTop10 + "|seriesTop10Only=" + seriesTop10 + "|posterLang=" + plang + "|digitalOnly=" + d + "|listLang=" + l + traktShowsPart + traktMoviesPart + traktTheatersPart + showsDisplayNamePart + moviesDisplayNamePart + theatersDisplayNamePart;
             const h = window.location.host, pr = window.location.protocol;
             
             document.getElementById('manifestUrl').value = pr + "//" + h + "/" + c + "/manifest.json";

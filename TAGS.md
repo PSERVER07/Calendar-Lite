@@ -2,6 +2,22 @@
 
 This document outlines the various landscape graphic tags applied to content and the specific conditions required for them to appear.
 
+## Top 10 Today Tags
+
+Top 10 Today tags only apply when **TMDB Top 10 Trending Today** is enabled. They are evaluated before the normal Calendar-Lite tags; if no Top 10 Today tag applies, the addon falls back to the standard movie or series tag logic below.
+
+### Movies
+*   **`Now Streaming`**
+    *   **Logic:** The movie was released digitally within the last **14 days**, and it either skipped theaters or its theatrical release date was the same as its digital release date.
+*   **`Just Added`**
+    *   **Logic:** The movie was released digitally within the last **14 days**, and it had a theatrical release date prior to its digital release.
+
+### Series (TV Shows)
+*   **`Miniseries`**
+    *   **Logic:** A limited series television show that is marked to air only **1 season**, with TMDB metadata identifying it as a miniseries/limited series by type, keyword, or season label.
+
+---
+
 ## Movies
 
 Movie tags are calculated using the earliest available **Theatrical** and **Digital (VOD)** release dates from the TMDB API. If a Trakt movie catalog item does not have a TMDB theatrical or digital release date, the addon falls back to Trakt movie releases and uses the first available US or GB matching date.
