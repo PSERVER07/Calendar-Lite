@@ -756,6 +756,7 @@ const tagDisplayNameMap = {
     "new_movie": "New Movie",
     "in_theaters": "In Theaters",
     "coming_soon": "Coming Soon",
+    "miniseries": "Miniseries",
     "new_series": "New Series",
     "season_finale": "Season Finale",
     "series_finale": "Series Finale",
@@ -1398,6 +1399,10 @@ builder.defineCatalogHandler(async (args) => {
 
                         if (hasNextEpisodeTag) {
                             itemTag = `next_episode_date_${formatFutureDate(nextAirDate).replace(' ', '_')}`;
+                        } else if ((tvData.type || "").toLowerCase() === "miniseries" &&
+                            tvData.number_of_seasons === 1 &&
+                            firstAir && firstAir <= TODAY && diffDays(TODAY, firstAir) <= 3) {
+                            itemTag = "miniseries";
                         } else if (firstAir && firstAir <= TODAY && diffDays(TODAY, firstAir) <= 3) {
                             itemTag = "new_series";
                         } else if (seasonAir && seasonAir <= TODAY && diffDays(TODAY, seasonAir) <= 3) {
