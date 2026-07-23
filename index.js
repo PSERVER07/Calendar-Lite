@@ -756,7 +756,7 @@ const tagDisplayNameMap = {
     "new_movie": "New Movie",
     "in_theaters": "In Theaters",
     "coming_soon": "Coming Soon",
-    "miniseries": "Miniseries",
+    "miniseries": "New Miniseries",
     "new_series": "New Series",
     "season_finale": "Season Finale",
     "series_finale": "Series Finale",
