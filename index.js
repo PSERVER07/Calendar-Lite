@@ -711,16 +711,19 @@ function displayNameConfigValue(value, fallback) {
 }
 
 function configuredCatalogs(config = {}) {
-    return [
+    const catalogs = [
         { id: "calendar_lite_movies", type: "movie", name: displayNameConfigValue(config.moviesDisplayName, DEFAULT_CATALOGS.movies) },
         { id: "calendar_lite_shows", type: "series", name: displayNameConfigValue(config.showsDisplayName, DEFAULT_CATALOGS.shows) },
         { id: "calendar_lite_theaters", type: "movie", name: displayNameConfigValue(config.theatersDisplayName, DEFAULT_CATALOGS.theaters) }
     ];
+    return config.tmdbTrendingToday === "true"
+        ? catalogs.filter(catalog => catalog.id !== "calendar_lite_theaters")
+        : catalogs;
 }
 
 const manifest = {
     id: "com.pserver.calendar-lite",
-    version: "1.12.4",
+    version: "1.12.5",
     name: "Coming Soon",
     description: "Customizable Stremio catalogs for upcoming and recently released content with optional graphic tags and public Trakt or TMDB lists.",
     behaviorHints: { configurable: true, configurationRequired: true },
@@ -1205,7 +1208,9 @@ builder.defineCatalogHandler(async (args) => {
     };
 
     const tmdbType = type === 'series' ? 'tv' : 'movie';
-    const activePublicCatalog = id === "calendar_lite_theaters"
+    const activePublicCatalog = userConfig.tmdbTrendingToday && id === "calendar_lite_theaters"
+        ? null
+        : id === "calendar_lite_theaters"
         ? userConfig.traktTheatersCatalog
         : type === 'series'
             ? (userConfig.traktShowsCatalog || userConfig.traktCatalog)
@@ -2368,26 +2373,30 @@ const configUI = `<!DOCTYPE html>
             const tmdbTrending = document.getElementById('tmdbTrendingToday').checked;
             const loadShows = !!traktShows || tmdbTrending;
             const loadMovies = !!traktMovies || tmdbTrending;
+            const loadTheaters = !!traktTheaters && !tmdbTrending;
+            const theatersMessage = tmdbTrending
+                ? 'In Theaters catalog is disabled while TMDB Top 10 Trending Today is enabled'
+                : 'Add an in-theaters catalog to preview theatrical releases';
 
-            if (!loadShows && !loadMovies && !traktTheaters) {
+            if (!loadShows && !loadMovies && !loadTheaters) {
                 currentShows = [];
                 currentMovies = [];
                 currentTheaters = [];
                 showsContainer.innerHTML = '<div class="loading">Add a shows catalog to preview shows</div>';
                 moviesContainer.innerHTML = '<div class="loading">Add a movies catalog to preview movies</div>';
-                theatersContainer.innerHTML = '<div class="loading">Add an in-theaters catalog to preview theatrical releases</div>';
+                theatersContainer.innerHTML = '<div class="loading">' + theatersMessage + '</div>';
                 return;
             }
 
             showsContainer.innerHTML = loadShows ? '<div class="loading">Loading shows...</div>' : '<div class="loading">Add a shows catalog to preview shows</div>';
             moviesContainer.innerHTML = loadMovies ? '<div class="loading">Loading movies...</div>' : '<div class="loading">Add a movies catalog to preview movies</div>';
-            theatersContainer.innerHTML = traktTheaters ? '<div class="loading">Loading theatrical releases...</div>' : '<div class="loading">Add an in-theaters catalog to preview theatrical releases</div>';
+            theatersContainer.innerHTML = loadTheaters ? '<div class="loading">Loading theatrical releases...</div>' : '<div class="loading">' + theatersMessage + '</div>';
             
             try {
                 const [showsRes, moviesRes, theatersRes] = await Promise.all([
                     loadShows ? fetch(pr + "//" + h + "/" + config + "/catalog/series/calendar_lite_shows.json") : Promise.resolve(null),
                     loadMovies ? fetch(pr + "//" + h + "/" + config + "/catalog/movie/calendar_lite_movies.json") : Promise.resolve(null),
-                    traktTheaters ? fetch(pr + "//" + h + "/" + config + "/catalog/movie/calendar_lite_theaters.json") : Promise.resolve(null)
+                    loadTheaters ? fetch(pr + "//" + h + "/" + config + "/catalog/movie/calendar_lite_theaters.json") : Promise.resolve(null)
                 ]);
                 
                 const showsData = showsRes ? await showsRes.json() : { metas: [] };
@@ -2405,13 +2414,13 @@ const configUI = `<!DOCTYPE html>
                 renderCurrentData();
                 if (!loadShows) showsContainer.innerHTML = '<div class="loading">Add a shows catalog to preview shows</div>';
                 if (!loadMovies) moviesContainer.innerHTML = '<div class="loading">Add a movies catalog to preview movies</div>';
-                if (!traktTheaters) theatersContainer.innerHTML = '<div class="loading">Add an in-theaters catalog to preview theatrical releases</div>';
+                if (!loadTheaters) theatersContainer.innerHTML = '<div class="loading">' + theatersMessage + '</div>';
                 
             } catch (err) {
                 const message = err && err.message ? err.message : 'Error loading preview';
                 if (loadShows) showsContainer.innerHTML = '<div class="loading">' + message + '</div>';
                 if (loadMovies) moviesContainer.innerHTML = '<div class="loading">' + message + '</div>';
-                if (traktTheaters) theatersContainer.innerHTML = '<div class="loading">' + message + '</div>';
+                if (loadTheaters) theatersContainer.innerHTML = '<div class="loading">' + message + '</div>';
             }
         }
         
