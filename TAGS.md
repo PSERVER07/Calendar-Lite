@@ -14,7 +14,7 @@ Top 10 Today tags only apply when **TMDB Top 10 Trending Today** is enabled. The
 
 ### Series (TV Shows)
 *   **`Miniseries`**
-    *   **Logic:** A limited series television show that is marked to air only **1 season**, with TMDB metadata identifying it as a miniseries/limited series by type, keyword, or season label.
+    *   **Logic:** A limited series television show that is marked to air only **1 season**, with TMDB metadata identifying it as a miniseries/limited series by type, keyword, season label, or one-season docuseries/special-look metadata.
 
 ---
 
@@ -53,7 +53,7 @@ Series tags are calculated based on a combination of first air dates, recent/upc
 *   **`Next Episode [Month] [Day]`**
     *   **Logic:** A new episode is going to air within the next **7 days** after the last episode aired **4 or more days** ago.
 *   **`New Miniseries`**
-    *   **Logic:** A limited series television show that premiered its very first episode within the last **3 days**. The series must be marked to air only **1 season**, with TMDB metadata identifying it as a miniseries/limited series by type, keyword, or season label.
+    *   **Logic:** A limited series television show that premiered its very first episode within the last **3 days**. The series must be marked to air only **1 season**, with TMDB metadata identifying it as a miniseries/limited series by type, keyword, season label, or one-season docuseries/special-look metadata.
 *   **`New Series`**
     *   **Logic:** A brand new series premiered its very first episode within the last **3 days**.
 *   **`New Season`**

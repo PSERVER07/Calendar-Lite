@@ -799,6 +799,10 @@ function textMatchesLimitedSeries(value) {
     return /(^|\s|-)(mini[-\s]?series|limited[-\s]?series)(\s|-|$)/i.test(value || "");
 }
 
+function textMatchesLimitedRunFallback(value) {
+    return /(^|\s|-)(docu[-\s]?series|special[-\s]?look)(\s|-|$)/i.test(value || "");
+}
+
 function isOneSeasonSeries(tvData) {
     const regularSeasons = (tvData.seasons || []).filter(season => season.season_number > 0);
     return tvData.number_of_seasons === 1 || regularSeasons.length === 1;
@@ -810,7 +814,15 @@ function isLimitedSeriesMetadata(tvData) {
     if ((tvData.seasons || []).some(season => textMatchesLimitedSeries(season.name))) return true;
 
     const keywords = tvData.keywords?.results || tvData.keywords?.keywords || [];
-    return keywords.some(keyword => textMatchesLimitedSeries(keyword.name));
+    if (keywords.some(keyword => textMatchesLimitedSeries(keyword.name))) return true;
+
+    return [
+        tvData.name,
+        tvData.original_name,
+        tvData.overview,
+        ...(tvData.seasons || []).map(season => season.name),
+        ...keywords.map(keyword => keyword.name)
+    ].some(textMatchesLimitedRunFallback);
 }
 
 function sameCalendarDate(dateA, dateB) {
