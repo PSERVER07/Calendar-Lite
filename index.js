@@ -825,24 +825,6 @@ function isLimitedSeriesMetadata(tvData) {
     ].some(textMatchesLimitedRunFallback);
 }
 
-function sameCalendarDate(dateA, dateB) {
-    if (!dateA || !dateB) return false;
-    const a = new Date(dateA);
-    const b = new Date(dateB);
-    a.setHours(0, 0, 0, 0);
-    b.setHours(0, 0, 0, 0);
-    return a.getTime() === b.getTime();
-}
-
-function isBeforeCalendarDate(dateA, dateB) {
-    if (!dateA || !dateB) return false;
-    const a = new Date(dateA);
-    const b = new Date(dateB);
-    a.setHours(0, 0, 0, 0);
-    b.setHours(0, 0, 0, 0);
-    return a.getTime() < b.getTime();
-}
-
 /**
  * Determine the best provider/network logo to show.
  * Returns { path, isNetwork } or null.
@@ -1324,8 +1306,7 @@ builder.defineCatalogHandler(async (args) => {
 
                     let top10MovieTag = null;
                     if (useTmdbTrendingToday && userConfig.top10MovieTags && daysSinceDigital !== null) {
-                        if (daysSinceDigital >= 4 && (!item._earliestTheatrical || sameCalendarDate(item._earliestTheatrical, item._earliestDigital))) top10MovieTag = "top10_now_streaming";
-                        else if (daysSinceDigital <= 3 && isBeforeCalendarDate(item._earliestTheatrical, item._earliestDigital)) top10MovieTag = "top10_just_added";
+                        top10MovieTag = daysSinceDigital <= 3 ? "top10_just_added" : "top10_now_streaming";
                     }
 
                     if (top10MovieTag) {
