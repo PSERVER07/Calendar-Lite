@@ -21,7 +21,7 @@ const TMDB_READ_ACCESS_TOKEN = cleanEnvValue(process.env.TMDB_READ_ACCESS_TOKEN)
 const TRAKT_CLIENT_ID = cleanEnvValue(process.env.TRAKT_CLIENT_ID);
 const TRAKT_ACCESS_TOKEN = cleanEnvValue(process.env.TRAKT_ACCESS_TOKEN).replace(/^Bearer\s+/i, "");
 const ADDON_URL = cleanEnvValue(process.env.ADDON_URL);
-const IMAGE_VERSION = "20260722-rank-style";
+const IMAGE_VERSION = "20260722-tag-color";
 
 const imageCache = new Map();
 const tmdbCache = new Map();
@@ -904,6 +904,45 @@ async function sampleBottomHalf(imageBuffer, metadata) {
     }
 }
 
+function clampColor(value) {
+    return Math.max(0, Math.min(255, Math.round(value)));
+}
+
+function blendColor(color, target, amount) {
+    return {
+        meanR: clampColor(color.meanR + (target.meanR - color.meanR) * amount),
+        meanG: clampColor(color.meanG + (target.meanG - color.meanG) * amount),
+        meanB: clampColor(color.meanB + (target.meanB - color.meanB) * amount)
+    };
+}
+
+function colorLuminance(color) {
+    return (0.299 * color.meanR) + (0.587 * color.meanG) + (0.114 * color.meanB);
+}
+
+function colorSaturation(color) {
+    const max = Math.max(color.meanR, color.meanG, color.meanB) / 255;
+    const min = Math.min(color.meanR, color.meanG, color.meanB) / 255;
+    if (max === 0) return 0;
+    return (max - min) / max;
+}
+
+async function samplePosterPrimaryColor(imageBuffer) {
+    try {
+        const stats = await sharp(imageBuffer)
+            .resize({ width: 80, height: 120, fit: "inside" })
+            .stats();
+        const dominant = stats.dominant || {};
+        const meanR = clampColor(dominant.r ?? stats.channels?.[0]?.mean ?? 26);
+        const meanG = clampColor(dominant.g ?? stats.channels?.[1]?.mean ?? 26);
+        const meanB = clampColor(dominant.b ?? stats.channels?.[2]?.mean ?? 26);
+        const color = { meanR, meanG, meanB };
+        return { ...color, luminance: colorLuminance(color) };
+    } catch {
+        return { meanR: 26, meanG: 26, meanB: 26, luminance: 26 };
+    }
+}
+
 /**
  * Estimate rendered text width given a font size.
  */
@@ -946,8 +985,9 @@ async function buildTagComposites(imageBuffer, metadata, tagText, heightRatio, f
     const extractHeight = Math.min(tagHeight, height - extractTop);
 
     // ── Run color sampling and region blur in parallel ───────────────────────
-    const [colorInfo, blurBuffer] = await Promise.all([
+    const [localColorInfo, primaryColorInfo, blurBuffer] = await Promise.all([
         sampleBottomHalf(imageBuffer, metadata),
+        samplePosterPrimaryColor(imageBuffer),
         sharp(imageBuffer)
             .extract({ left: extractLeft, top: extractTop, width: extractWidth, height: extractHeight })
             .blur(15)
@@ -956,19 +996,22 @@ async function buildTagComposites(imageBuffer, metadata, tagText, heightRatio, f
             .catch(() => null)
     ]);
 
-    const { meanR, meanG, meanB, luminance } = colorInfo;
+    let tagColor = blendColor(localColorInfo, primaryColorInfo, 0.65);
+    if (colorSaturation(tagColor) < 0.18 && colorSaturation(primaryColorInfo) >= 0.18) {
+        tagColor = blendColor(tagColor, primaryColorInfo, 0.35);
+    }
+    const luminance = colorLuminance(tagColor);
 
     const textColor = luminance > 140 ? "#121212" : "#ffffff";
 
-    // Blend the sampled color with white if text is black, otherwise grey
-    const greyMixFactor = 0.25;
-    const blendTarget = textColor === "#121212" ? 255 : 128;
-    const adjR = Math.round(meanR + (blendTarget - meanR) * greyMixFactor);
-    const adjG = Math.round(meanG + (blendTarget - meanG) * greyMixFactor);
-    const adjB = Math.round(meanB + (blendTarget - meanB) * greyMixFactor);
+    const glassMixFactor = textColor === "#121212" ? 0.18 : 0.22;
+    const blendTarget = textColor === "#121212"
+        ? { meanR: 255, meanG: 255, meanB: 255 }
+        : { meanR: 96, meanG: 96, meanB: 96 };
+    const glassColor = blendColor(tagColor, blendTarget, glassMixFactor);
 
-    const tagFillColor = `rgb(${adjR}, ${adjG}, ${adjB})`;
-    let tagFillOpacity = "0.45";
+    const tagFillColor = `rgb(${glassColor.meanR}, ${glassColor.meanG}, ${glassColor.meanB})`;
+    let tagFillOpacity = "0.52";
 
     const composites = [];
     const fontStack = "'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif";
